@@ -282,7 +282,7 @@ export class ImportModal extends Modal {
 		const template = await this.loadTemplate();
 
 		// Determine PDF link format based on whether we downloaded the PDF
-		const pdfLink = pdfPath ? `"[[${pdfPath}]]"` : `"${paper.pdfUrl}"`;
+		const pdfLink = pdfPath ? `[[${pdfPath}]]` : `${paper.pdfUrl}`;
 
 		const noteContent = template
 			.replace(/{{\s*paper_id\s*}}/g, paper.paperId)
@@ -297,7 +297,7 @@ export class ImportModal extends Modal {
 				/{{\s*comments\s*}}/g,
 				sanitizeForFrontmatter(paper.comments)
 			)
-			.replace(/{{\s*pdf_link\s*}}/g, pdfLink);
+			.replace(/{{\s*pdf_link\s*}}/g, `${pdfLink}`);
 
 		await this.app.vault.adapter.write(notePath, noteContent);
 

@@ -5,7 +5,7 @@ authors: {{ authors }}
 publication date: {{ date }}
 abstract: {{ abstract }}
 comments: {{ comments }}
-pdf: {{ pdf_link }}
+pdf: "{{ pdf_link }}"
 url: https://arxiv.org/abs/{{ paper_id }}
 tags: []
 ---
