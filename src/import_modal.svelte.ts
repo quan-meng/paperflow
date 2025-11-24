@@ -287,7 +287,7 @@ export class ImportModal extends Modal {
 		const noteContent = template
 			.replace(/{{\s*paper_id\s*}}/g, paper.paperId)
 			.replace(/{{\s*title\s*}}/g, sanitizeForFrontmatter(paper.title))
-			.replace(/{{\s*authors\s*}}/g, paper.authors.join(", "))
+			.replace(/{{\s*authors\s*}}/g, `[${paper.authors.join(", ")}]`)
 			.replace(/{{\s*date\s*}}/g, paper.date)
 			.replace(
 				/{{\s*abstract\s*}}/g,
