@@ -34,17 +34,14 @@ export async function searchPaper(arxivId: string): Promise<Paper> {
 				author.querySelector("name")?.textContent?.trim() ||
 				"Unknown author";
 			return name;
-		},
+		}
 	);
 
 	const date = entry.querySelector("published")?.textContent?.trim() || "";
 
 	const abstract =
-		entry
-			.querySelector("summary")
-			?.textContent?.trim()
-			.replace(/\n/g, " ")
-			.replace(/"/g, "'") || "No abstract available";
+		entry.querySelector("summary")?.textContent?.trim() ||
+		"No abstract available";
 
 	const comments = entry.querySelector("comment")?.textContent?.trim() || "";
 

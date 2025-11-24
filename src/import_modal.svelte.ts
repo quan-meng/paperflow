@@ -7,6 +7,51 @@ import { searchPaper } from "./arxiv";
 import { DEFAULT_TEMPLATE } from "./default_template";
 import type { PaperImporterPluginSettings } from "./setting_tab";
 
+function sanitizeForFrontmatter(value?: string | null): string {
+	if (!value) {
+		return '""';
+	}
+
+	const trimmed = value.trim();
+
+	// If empty after trimming, return empty quoted string
+	if (!trimmed) {
+		return '""';
+	}
+
+	// Check if the string contains characters that require special handling in YAML
+	const needsQuoting =
+		/[:\{\}\[\],&*#?|\-<>=!%@`"'\\]/.test(trimmed) ||
+		trimmed.startsWith(" ") ||
+		trimmed.endsWith(" ") ||
+		/^\d/.test(trimmed) ||
+		/^(true|false|yes|no|null)$/i.test(trimmed);
+
+	// Check if it contains newlines (multiline)
+	const hasNewlines = /[\r\n]/.test(trimmed);
+
+	if (hasNewlines) {
+		// Use literal block scalar (|) for multiline content
+		// This preserves newlines and is ideal for abstracts
+		const indented = trimmed
+			.split("\n")
+			.map((line) => "  " + line)
+			.join("\n");
+		return "|\n" + indented;
+	}
+
+	if (needsQuoting) {
+		// Use double quotes and escape internal quotes and backslashes
+		const escaped = trimmed
+			.replace(/\\/g, "\\\\") // Escape backslashes first
+			.replace(/"/g, '\\"'); // Escape double quotes
+		return `"${escaped}"`;
+	}
+
+	// Safe to use unquoted
+	return trimmed;
+}
+
 export class ImportModal extends Modal {
 	settings: PaperImporterPluginSettings;
 	downloadPdf: boolean;
@@ -234,11 +279,17 @@ export class ImportModal extends Modal {
 
 		const noteContent = template
 			.replace(/{{\s*paper_id\s*}}/g, paper.paperId)
-			.replace(/{{\s*title\s*}}/g, `"${paper.title}"`)
+			.replace(/{{\s*title\s*}}/g, sanitizeForFrontmatter(paper.title))
 			.replace(/{{\s*authors\s*}}/g, paper.authors.join(", "))
 			.replace(/{{\s*date\s*}}/g, paper.date)
-			.replace(/{{\s*abstract\s*}}/g, `"${paper.abstract}"`)
-			.replace(/{{\s*comments\s*}}/g, `"${paper.comments}"`)
+			.replace(
+				/{{\s*abstract\s*}}/g,
+				sanitizeForFrontmatter(paper.abstract)
+			)
+			.replace(
+				/{{\s*comments\s*}}/g,
+				sanitizeForFrontmatter(paper.comments)
+			)
 			.replace(/{{\s*pdf_link\s*}}/g, pdfLink);
 
 		await this.app.vault.adapter.write(notePath, noteContent);
