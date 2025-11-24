@@ -59,6 +59,17 @@ function sanitizeFilename(filename: string): string {
 		.trim();
 }
 
+function formatDateForObsidian(dateString: string): string {
+	const date = new Date(dateString);
+	const year = date.getUTCFullYear();
+	const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+	const day = String(date.getUTCDate()).padStart(2, "0");
+	const hours = String(date.getUTCHours()).padStart(2, "0");
+	const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+
+	return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export class ImportModal extends Modal {
 	settings: PaperImporterPluginSettings;
 	downloadPdf: boolean;
@@ -288,7 +299,7 @@ export class ImportModal extends Modal {
 			.replace(/{{\s*paper_id\s*}}/g, paper.paperId)
 			.replace(/{{\s*title\s*}}/g, sanitizeForFrontmatter(paper.title))
 			.replace(/{{\s*authors\s*}}/g, `[${paper.authors.join(", ")}]`)
-			.replace(/{{\s*date\s*}}/g, paper.date)
+			.replace(/{{\s*date\s*}}/g, formatDateForObsidian(paper.date))
 			.replace(
 				/{{\s*abstract\s*}}/g,
 				sanitizeForFrontmatter(paper.abstract)
