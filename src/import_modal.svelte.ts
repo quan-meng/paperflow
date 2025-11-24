@@ -52,6 +52,13 @@ function sanitizeForFrontmatter(value?: string | null): string {
 	return trimmed;
 }
 
+function sanitizeFilename(filename: string): string {
+	return filename
+		.replace(/[/\\?%*:|"<>]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 export class ImportModal extends Modal {
 	settings: PaperImporterPluginSettings;
 	downloadPdf: boolean;
@@ -159,7 +166,7 @@ export class ImportModal extends Modal {
 			pdfFolderPath = await this.app.vault.createFolder(pdfFolder);
 		}
 
-		const pdfFilename = this.sanitizeFilename(
+		const pdfFilename = sanitizeFilename(
 			`${paper.title} (${paper.paperId}).pdf`
 		);
 		const pdfPath = normalizePath(`${pdfFolderPath.path}/${pdfFilename}`);
@@ -255,7 +262,7 @@ export class ImportModal extends Modal {
 			noteFolderPath = await this.app.vault.createFolder(noteFolder);
 		}
 
-		const noteFilename = this.sanitizeFilename(
+		const noteFilename = sanitizeFilename(
 			`${paper.title} (${paper.paperId}).md`
 		);
 		const notePath = normalizePath(
@@ -390,13 +397,6 @@ export class ImportModal extends Modal {
 		}
 
 		throw new Error("Invalid arXiv ID or URL");
-	}
-
-	sanitizeFilename(filename: string): string {
-		return filename
-			.replace(/[/\\?%*:|"<>]/g, " ")
-			.replace(/\s+/g, " ")
-			.trim();
 	}
 
 	getDefaultTemplate(): string {
