@@ -1,23 +1,19 @@
 # PaperFlow
 
-PaperFlow imports arXiv papers into Obsidian. It creates a Markdown note from
-arXiv metadata, optionally downloads the PDF, and can append a concise AI
-reading section using your local Claude Code or Codex CLI.
+PaperFlow turns arXiv links into Obsidian paper notes, PDFs, AI summaries, and
+PDF++ highlights.
 
 ![PaperFlow import page](assets/paperflow-teaser.svg)
 
-## Features
+## What It Does
 
 - Import from arXiv IDs or arXiv URLs.
-- Open a fresh `PaperFlow` page for each paper.
-- Download the PDF or import metadata only.
-- Automatically open the generated Markdown note when import finishes.
-- Reuse existing notes and PDFs when matching files already exist.
-- Use a custom note template.
-- Optionally run Claude Code or Codex after PDF download.
-- Edit one shared AI reading prompt in plugin settings.
-- Optionally format AI key sentences as PDF++ callouts with best-effort
-  `selection=` ranges.
+- Download PDFs and create Markdown notes in `Raw` by default.
+- Read papers with Claude Code or Codex.
+- Generate concise sections for idea, method, limitations, future work, and key sentences.
+- Add exact-match PDF++ highlights with configurable concepts and colors.
+
+![PaperFlow PDF selection](assets/paperflow-pdf-selection.svg)
 
 ## Installation
 
@@ -54,8 +50,7 @@ Open the command palette and run one of:
 - `PaperFlow: Import metadata and PDF from arXiv`
 - `PaperFlow: Import metadata only from arXiv`
 
-The command opens a fresh `PaperFlow` page in the main workspace. Enter an
-arXiv ID or URL, then press Enter or click `Import`.
+Enter an arXiv ID or URL, then press Enter or click `Import`.
 
 Supported inputs:
 
@@ -66,9 +61,8 @@ https://arxiv.org/abs/1703.06870
 https://arxiv.org/pdf/1703.06870
 ```
 
-The import page shows the active stage, elapsed time, recent logs, PDF download
-progress, and a cancel button. On success, the same tab opens the generated
-Markdown note.
+PaperFlow shows progress, supports canceling, and opens the generated note when
+the import finishes.
 
 ## Settings
 
@@ -89,8 +83,8 @@ Open `Settings -> PaperFlow`.
 
 ## AI Reading
 
-When `Read with Claude` or `Read with Codex` is enabled, the plugin appends a
-reading section to the generated note. The default prompt asks for:
+When `Read with Claude` or `Read with Codex` is enabled, PaperFlow appends a
+short reading section:
 
 - `Idea`
 - `Method`
@@ -113,34 +107,30 @@ The reading prompt supports these placeholders:
 {{ pdf_text }}
 ```
 
-`{{ pdf_text }}` is mainly for Codex. The plugin extracts a bounded amount of
-PDF text locally with `pdftotext` before invoking Codex so Codex does not need
-to inspect the full PDF itself.
+`{{ pdf_text }}` is mainly for Codex. PaperFlow extracts bounded PDF text locally
+with `pdftotext`.
 
 ## PDF++ Highlights
 
-By default, AI key sentences are page links:
+AI key sentences can become PDF++ callouts:
 
 ```markdown
 > [!PDF|yellow] [[Paper Title.pdf#page=1&color=yellow|Paper Title, p.1]]
 > > quoted sentence
 ```
 
-If `Include PDF++ highlights` is enabled, the plugin tries to locate each quoted
-sentence in the PDF text layer and adds a PDF++ `selection=` range:
+With `Include PDF++ highlights`, PaperFlow locates exact quoted sentences in the
+PDF text layer and adds a PDF++ `selection=` range:
 
 ```markdown
 > [!PDF|yellow] [[Paper Title.pdf#page=1&selection=20,87,22,100&color=yellow|Paper Title, p.1]]
 > > quoted sentence
 ```
 
-This is exact-match only. PaperFlow uses the same PDF.js text-layer coordinate
-system as PDF++. If a quoted sentence cannot be matched uniquely, the plugin
-keeps the page-only link instead of creating a wrong highlight.
+If a sentence cannot be matched uniquely, PaperFlow keeps the page-only link
+instead of creating a wrong highlight.
 
-When key sentences are grouped under concept headings configured in settings,
-PaperFlow rewrites the PDF++ callout colors using those hex colors. The defaults
-are `Key Points`, `Method`, `Results`, and `Details`.
+![PaperFlow note highlights](assets/paperflow-note-highlights.svg)
 
 ## Metadata And Network Behavior
 

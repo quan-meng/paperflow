@@ -1,0 +1,37 @@
+<svg width="960" height="900" viewBox="0 0 960 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="960" height="900" fill="#ffffff"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="120" y="50" fill="#111111" font-size="23" font-weight="700">Limitations</text>
+    <circle cx="138" cy="82" r="3" fill="#bdbdbd"/>
+    <text x="150" y="88" fill="#111111" font-size="20">Each scene trains its own network, which is slow compared with feed-forward methods.</text>
+    <circle cx="138" cy="126" r="3" fill="#bdbdbd"/>
+    <text x="150" y="132" fill="#111111" font-size="20">The representation is not easily interpretable.</text>
+    <circle cx="138" cy="170" r="3" fill="#bdbdbd"/>
+    <text x="150" y="176" fill="#111111" font-size="20">Rendering and optimization remain sample-inefficient.</text>
+
+    <text x="120" y="250" fill="#111111" font-size="23" font-weight="700">Future Work</text>
+    <circle cx="138" cy="282" r="3" fill="#bdbdbd"/>
+    <text x="150" y="288" fill="#111111" font-size="20">Optimize and render neural radiance fields more efficiently.</text>
+    <circle cx="138" cy="326" r="3" fill="#bdbdbd"/>
+    <text x="150" y="332" fill="#111111" font-size="20">Improve interpretability for failure modes and expected view quality.</text>
+    <circle cx="138" cy="370" r="3" fill="#bdbdbd"/>
+    <text x="150" y="376" fill="#111111" font-size="20">Build graphics pipelines from real-world imagery.</text>
+
+    <text x="120" y="475" fill="#111111" font-size="23" font-weight="700">Key Sentences</text>
+    <text x="120" y="525" fill="#111111" font-size="20" font-weight="700">Key Points</text>
+
+    <rect x="120" y="545" width="720" height="150" rx="4" fill="#ead8f6"/>
+    <text x="150" y="582" fill="#7b8a95" font-size="20" font-weight="600">⌁ NeRF Representing Scenes as Neural Radiance Fields</text>
+    <text x="172" y="610" fill="#7b8a95" font-size="20" font-weight="600">(2003.08934v2), p.1</text>
+    <line x1="150" y1="635" x2="150" y2="675" stroke="#d6b9eb" stroke-width="2"/>
+    <text x="178" y="650" fill="#696969" font-size="19">In this work, we address view synthesis by optimizing</text>
+    <text x="178" y="678" fill="#696969" font-size="19">a continuous 5D scene representation.</text>
+
+    <rect x="120" y="730" width="720" height="140" rx="4" fill="#dce8fb"/>
+    <text x="150" y="767" fill="#6b7f8e" font-size="20" font-weight="600">⌁ NeRF Representing Scenes as Neural Radiance Fields</text>
+    <text x="172" y="795" fill="#6b7f8e" font-size="20" font-weight="600">(2003.08934v2), p.2</text>
+    <line x1="150" y1="820" x2="150" y2="855" stroke="#c8d8f2" stroke-width="2"/>
+    <text x="178" y="835" fill="#696969" font-size="19">A positional encoding lets the MLP represent high-frequency</text>
+    <text x="178" y="862" fill="#696969" font-size="19">functions with fewer queries.</text>
+  </g>
+</svg>

@@ -1,0 +1,50 @@
+<svg width="960" height="640" viewBox="0 0 960 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="960" height="640" fill="#ffffff"/>
+  <text x="24" y="46" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="700">3&nbsp;&nbsp;Neural Radiance Field Scene Representation</text>
+  <text x="24" y="98" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="24">We represent a continuous scene as a 5D vector-valued function whose input is</text>
+  <text x="24" y="132" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="24">a 3D location x = (x, y, z) and 2D viewing direction, and whose output</text>
+  <text x="24" y="166" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="24">is an emitted color c = (r, g, b) and volume density sigma.</text>
+
+  <rect x="82" y="238" width="172" height="116" rx="4" fill="#f6f0df" stroke="#2f3a45" stroke-width="2"/>
+  <rect x="138" y="204" width="132" height="132" fill="#f5f5f5" stroke="#c7c7c7" stroke-dasharray="2 3"/>
+  <rect x="234" y="238" width="172" height="116" rx="4" fill="#f6f0df" stroke="#2f3a45" stroke-width="2"/>
+  <path d="M42 336L192 250L346 337" stroke="#ef5b35" stroke-width="2"/>
+  <path d="M196 246C214 229 239 224 264 222" stroke="#3b7bc3" stroke-width="2" marker-end="url(#arrow)"/>
+  <circle cx="178" cy="254" r="4" fill="#1f2933"/>
+  <circle cx="203" cy="239" r="4" fill="#1f2933"/>
+  <circle cx="228" cy="227" r="4" fill="#1f2933"/>
+  <circle cx="254" cy="222" r="4" fill="#1f2933"/>
+  <text x="132" y="214" fill="#333333" font-family="Georgia, 'Times New Roman', serif" font-size="24">5D Input</text>
+  <text x="112" y="242" fill="#333333" font-family="Georgia, 'Times New Roman', serif" font-size="20">Position + Direction</text>
+
+  <rect x="480" y="232" width="52" height="72" fill="#d7e8ff" stroke="#2b76cc" stroke-width="3"/>
+  <line x1="497" y1="232" x2="497" y2="304" stroke="#2b76cc" stroke-width="3"/>
+  <line x1="516" y1="232" x2="516" y2="304" stroke="#2b76cc" stroke-width="3"/>
+  <text x="482" y="338" fill="#333333" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-style="italic">F</text>
+  <text x="524" y="338" fill="#333333" font-family="Georgia, 'Times New Roman', serif" font-size="20">Θ</text>
+  <path d="M406 282L468 282" stroke="#3b7bc3" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M532 282L594 282" stroke="#3b7bc3" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="610" y="238" width="172" height="116" rx="4" fill="#f6f0df" stroke="#2f3a45" stroke-width="2"/>
+  <rect x="666" y="204" width="132" height="132" fill="#f5f5f5" stroke="#c7c7c7" stroke-dasharray="2 3"/>
+  <rect x="762" y="238" width="172" height="116" rx="4" fill="#f6f0df" stroke="#2f3a45" stroke-width="2"/>
+  <path d="M570 336L720 250L874 337" stroke="#ef5b35" stroke-width="2"/>
+  <text x="654" y="214" fill="#333333" font-family="Georgia, 'Times New Roman', serif" font-size="24">Output</text>
+  <text x="620" y="242" fill="#333333" font-family="Georgia, 'Times New Roman', serif" font-size="20">Color + Density</text>
+
+  <text x="24" y="430" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="24">Fig. 2: A neural radiance field maps sampled 5D camera coordinates to</text>
+  <text x="24" y="464" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="24">color and density, then differentiable volume rendering composites images.</text>
+
+  <rect x="60" y="522" width="850" height="28" rx="3" fill="#cfe0ff"/>
+  <rect x="24" y="552" width="888" height="28" rx="3" fill="#cfe0ff"/>
+  <rect x="24" y="582" width="580" height="28" rx="3" fill="#cfe0ff"/>
+  <text x="62" y="544" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="23">We encourage the representation to be multiview consistent by restricting</text>
+  <text x="26" y="574" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="23">the network to predict volume density as a function of only the location x, while</text>
+  <text x="26" y="604" fill="#111111" font-family="Georgia, 'Times New Roman', serif" font-size="23">allowing RGB color to depend on both location and viewing direction.</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0 0L8 4L0 8Z" fill="#3b7bc3"/>
+    </marker>
+  </defs>
+</svg>
