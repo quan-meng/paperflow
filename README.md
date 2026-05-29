@@ -4,6 +4,8 @@ PaperFlow imports arXiv papers into Obsidian. It creates a Markdown note from
 arXiv metadata, optionally downloads the PDF, and can append a concise AI
 reading section using your local Claude Code or Codex CLI.
 
+![PaperFlow import page](assets/paperflow-teaser.svg)
+
 ## Features
 
 - Import from arXiv IDs or arXiv URLs.
