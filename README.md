@@ -21,7 +21,10 @@ Press `Ctrl+P` in Obsidian to open the command palette, then choose one of the f
 - **`Paper Importer: Import metadata and PDF from arXiv`** - Downloads both the paper's metadata and PDF file
 - **`Paper Importer: Import metadata only from arXiv`** - Imports only the paper's metadata without downloading the PDF
 
-In the popup, enter the arXiv ID or URL of the paper (e.g., `1703.06870` or `https://arxiv.org/abs/1703.06870`) you would like to import. Press the enter key to confirm. The metadata (and PDF if selected) will then be saved to your configured folders. Save destinations can be configured via the plugin settings panel.
+The command opens the Paper Import Queue in the right sidebar. Enter an arXiv ID or URL
+(e.g., `1703.06870` or `https://arxiv.org/abs/1703.06870`) and press Enter to queue it.
+Queued papers are imported one at a time in the background, so you can keep using Obsidian
+while metadata and PDFs are saved to your configured folders.
 
 ## Template Customization
 
@@ -31,7 +34,7 @@ The plugin supports custom note templates for imported papers through external t
 
 - `{{ paper_id }}` - arXiv paper ID
 - `{{ title }}` - Paper title
-- `{{ authors }}` - List of authors
+- `{{ authors }}` - Authors as text
 - `{{ date }}` - Publication date
 - `{{ abstract }}` - Paper abstract
 - `{{ comments }}` - Paper comments

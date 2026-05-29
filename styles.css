@@ -6,3 +6,107 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+
+.paper-importer-queue-view {
+	padding: 12px;
+}
+
+.paper-importer-queue-form {
+	display: flex;
+	gap: 8px;
+}
+
+.paper-importer-queue-form input {
+	flex: 1;
+	min-width: 0;
+}
+
+.paper-importer-queue-options {
+	margin-top: 10px;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.paper-importer-queue-empty {
+	margin-top: 16px;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.paper-importer-queue-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 16px;
+}
+
+.paper-importer-task {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 10px;
+	background: var(--background-secondary);
+}
+
+.paper-importer-task-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.paper-importer-task-title {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.paper-importer-task-status {
+	border-radius: 4px;
+	padding: 2px 6px;
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: 11px;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.paper-importer-task-running .paper-importer-task-status {
+	background: rgba(var(--interactive-accent-rgb), 0.14);
+	color: var(--text-accent);
+}
+
+.paper-importer-task-success .paper-importer-task-status {
+	background: rgba(52, 199, 89, 0.14);
+	color: rgb(48, 209, 88);
+}
+
+.paper-importer-task-error .paper-importer-task-status {
+	background: rgba(255, 59, 48, 0.14);
+	color: rgb(255, 69, 58);
+}
+
+.paper-importer-task-mode,
+.paper-importer-task-log {
+	margin-top: 6px;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+
+.paper-importer-task-progress {
+	height: 6px;
+	margin-top: 8px;
+	overflow: hidden;
+	border-radius: 3px;
+	background: var(--background-modifier-border);
+}
+
+.paper-importer-task-progress-bar {
+	height: 100%;
+	background: var(--interactive-accent);
+	transition: width 0.2s ease;
+}
+
+.paper-importer-task-open {
+	margin-top: 8px;
+}

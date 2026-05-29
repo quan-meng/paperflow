@@ -1,5 +1,8 @@
 import { Plugin } from "obsidian";
-import { ImportModal } from "./import_modal.svelte";
+import {
+	IMPORT_QUEUE_VIEW_TYPE,
+	ImportQueueView,
+} from "./import_queue_view";
 import {
 	DEFAULT_SETTINGS,
 	type PaperImporterPluginSettings,
@@ -12,12 +15,17 @@ export default class PaperImporterPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		this.registerView(
+			IMPORT_QUEUE_VIEW_TYPE,
+			(leaf) => new ImportQueueView(leaf, this)
+		);
+
 		// This adds a command to import metadata and download PDF from arXiv
 		this.addCommand({
 			id: "import_pdf_from_arxiv",
 			name: "Import metadata and PDF from arXiv",
-			callback: () => {
-				new ImportModal(this.app, this.settings, true).open();
+			callback: async () => {
+				await this.activateQueueView(true);
 			},
 		});
 
@@ -25,8 +33,8 @@ export default class PaperImporterPlugin extends Plugin {
 		this.addCommand({
 			id: "import_metadata_from_arxiv",
 			name: "Import metadata only from arXiv",
-			callback: () => {
-				new ImportModal(this.app, this.settings, false).open();
+			callback: async () => {
+				await this.activateQueueView(false);
 			},
 		});
 
@@ -35,6 +43,28 @@ export default class PaperImporterPlugin extends Plugin {
 	}
 
 	onunload() {}
+
+	async activateQueueView(downloadPdf: boolean) {
+		let leaf = this.app.workspace.getLeavesOfType(
+			IMPORT_QUEUE_VIEW_TYPE
+		)[0];
+
+		if (!leaf) {
+			leaf = await this.app.workspace.ensureSideLeaf(
+				IMPORT_QUEUE_VIEW_TYPE,
+				"right",
+				{ active: true, reveal: true }
+			);
+		}
+
+		await leaf.loadIfDeferred();
+		await this.app.workspace.revealLeaf(leaf);
+
+		if (leaf.view instanceof ImportQueueView) {
+			leaf.view.setDownloadPdf(downloadPdf);
+			leaf.view.focusInput();
+		}
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign(

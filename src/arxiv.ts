@@ -1,6 +1,8 @@
 import { requestUrl } from "obsidian";
 
-interface Paper {
+const ARXIV_API_TIMEOUT_MS = 30000;
+
+export interface Paper {
 	paperId: string;
 	title: string;
 	authors: string[];
@@ -10,14 +12,52 @@ interface Paper {
 	pdfUrl: string;
 }
 
-export async function searchPaper(arxivId: string): Promise<Paper> {
-	const url = `https://export.arxiv.org/api/query?id_list=${arxivId}`;
+async function withTimeout<T>(
+	operation: Promise<T>,
+	timeoutMs: number,
+	message: string
+): Promise<T> {
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+	});
 
-	const response = await requestUrl({ url });
+	try {
+		return await Promise.race([operation, timeout]);
+	} finally {
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+		}
+	}
+}
+
+function getNamespacedText(
+	entry: Element,
+	namespace: string,
+	tagName: string
+): string {
+	return (
+		entry.getElementsByTagNameNS(namespace, tagName)[0]?.textContent?.trim() ||
+		""
+	);
+}
+
+export async function searchPaper(arxivId: string): Promise<Paper> {
+	const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`;
+
+	const response = await withTimeout(
+		requestUrl({ url }),
+		ARXIV_API_TIMEOUT_MS,
+		"Timed out while fetching metadata from arXiv. Please try again later."
+	);
 	const parser = new DOMParser();
 	const xml = parser.parseFromString(response.text, "text/xml");
 
-	const entry = xml.querySelector("entry")!;
+	const entry = xml.querySelector("entry");
+
+	if (!entry) {
+		throw new Error("No arXiv entry was returned for this paper.");
+	}
 
 	const title = entry.querySelector("title")?.textContent?.trim();
 
@@ -43,7 +83,10 @@ export async function searchPaper(arxivId: string): Promise<Paper> {
 		entry.querySelector("summary")?.textContent?.trim() ||
 		"No abstract available";
 
-	const comments = entry.querySelector("comment")?.textContent?.trim() || "";
+	const comments =
+		getNamespacedText(entry, "http://arxiv.org/schemas/atom", "comment") ||
+		entry.getElementsByTagName("arxiv:comment")[0]?.textContent?.trim() ||
+		"";
 
 	const paperId =
 		entry.querySelector("id")?.textContent?.split("abs/")?.pop()?.trim() ||

@@ -6,6 +6,17 @@ import ImportDialog from "./component/ImportDialog.svelte";
 import { searchPaper } from "./arxiv";
 import { DEFAULT_TEMPLATE } from "./default_template";
 import type { PaperImporterPluginSettings } from "./setting_tab";
+import type { Paper } from "./arxiv";
+
+const PDF_DOWNLOAD_TIMEOUT_MS = 120000;
+
+function getErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
+}
 
 function sanitizeForFrontmatter(value?: string | null): string {
 	if (!value) {
@@ -114,7 +125,7 @@ export class ImportModal extends Modal {
 							arxivId = this.extractArxivId(paperUri);
 						} catch (error) {
 							this.states.downloadProgress = 0;
-							new Notice(error.message);
+							new Notice(getErrorMessage(error));
 							return;
 						}
 
@@ -128,6 +139,9 @@ export class ImportModal extends Modal {
 							);
 						} catch (error) {
 							this.states.downloadProgress = 0;
+							const message = getErrorMessage(error);
+							this.states.logs.push(["error", message]);
+							new Notice(message);
 							return;
 						}
 
@@ -155,7 +169,9 @@ export class ImportModal extends Modal {
 	}
 
 	async searchAndImportPaper(arxivId: string): Promise<[string, string]> {
+		this.states.logs.push(["info", "Fetching metadata from arXiv..."]);
 		const paper = await searchPaper(arxivId);
+		this.states.logs.push(["info", `Found paper: ${paper.title}`]);
 
 		let pdfPath = "";
 
@@ -169,7 +185,7 @@ export class ImportModal extends Modal {
 		return [notePath, pdfPath];
 	}
 
-	private async downloadPdfFile(paper: any): Promise<string> {
+	private async downloadPdfFile(paper: Paper): Promise<string> {
 		const pdfFolder = normalizePath(this.settings.pdfFolder);
 
 		let pdfFolderPath = this.app.vault.getFolderByPath(pdfFolder)!;
@@ -198,9 +214,16 @@ export class ImportModal extends Modal {
 		// Download PDF with progress tracking
 		this.states.downloadProgress = 0;
 		this.states.logs.push(["info", "Starting PDF download..."]);
+		const controller = new AbortController();
+		const timeoutId = setTimeout(
+			() => controller.abort(),
+			PDF_DOWNLOAD_TIMEOUT_MS
+		);
 
 		try {
-			const response = await fetch(paper.pdfUrl);
+			const response = await fetch(paper.pdfUrl, {
+				signal: controller.signal,
+			});
 			if (!response.ok) {
 				throw new Error(
 					`Failed to download PDF: ${response.statusText}`
@@ -251,11 +274,17 @@ export class ImportModal extends Modal {
 			);
 		} catch (error) {
 			this.states.downloadProgress = 0;
+			const message =
+				error instanceof DOMException && error.name === "AbortError"
+					? "PDF download timed out. Please try again later."
+					: getErrorMessage(error);
 			this.states.logs.push([
 				"error",
-				`PDF download failed: ${error.message}`,
+				`PDF download failed: ${message}`,
 			]);
-			throw error;
+			throw new Error(message);
+		} finally {
+			clearTimeout(timeoutId);
 		}
 
 		this.states.logs.push(["info", `PDF downloaded: ${pdfPath}`]);
@@ -263,7 +292,7 @@ export class ImportModal extends Modal {
 	}
 
 	private async createNoteFromPaper(
-		paper: any,
+		paper: Paper,
 		pdfPath: string
 	): Promise<string> {
 		const noteFolder = normalizePath(this.settings.noteFolder);
@@ -298,7 +327,10 @@ export class ImportModal extends Modal {
 		const noteContent = template
 			.replace(/{{\s*paper_id\s*}}/g, paper.paperId)
 			.replace(/{{\s*title\s*}}/g, sanitizeForFrontmatter(paper.title))
-			.replace(/{{\s*authors\s*}}/g, `[${paper.authors.join(", ")}]`)
+			.replace(
+				/{{\s*authors\s*}}/g,
+				sanitizeForFrontmatter(paper.authors.join(", "))
+			)
 			.replace(/{{\s*date\s*}}/g, formatDateForObsidian(paper.date))
 			.replace(
 				/{{\s*abstract\s*}}/g,
@@ -346,7 +378,7 @@ export class ImportModal extends Modal {
 			} catch (error) {
 				this.states.logs.push([
 					"error",
-					`Failed to read template file: ${error.message}, using default template`,
+					`Failed to read template file: ${getErrorMessage(error)}, using default template`,
 				]);
 			}
 		}
