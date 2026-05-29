@@ -1,7 +1,7 @@
 {
 	"id": "paperflow",
 	"name": "PaperFlow",
-	"version": "1.5.2",
+	"version": "1.5.3",
 	"minAppVersion": "1.7.6",
 	"description": "Import, read, and annotate arXiv papers.",
 	"author": "Quan Meng",
