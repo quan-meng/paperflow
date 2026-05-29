@@ -1,6 +1,6 @@
 {
 	"name": "paperflow",
-	"version": "1.5.1",
+	"version": "1.5.2",
 	"description": "Import, read, and annotate arXiv papers",
 	"main": "main.js",
 	"scripts": {

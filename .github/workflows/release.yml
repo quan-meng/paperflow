@@ -1,34 +1,55 @@
-name: Release Obsidian plugin
+name: Release
 
 on:
-    push:
-        tags:
-            - "*"
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
+  release:
+    runs-on: ubuntu-latest
 
-        steps:
-            - uses: actions/checkout@v3
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Use Node.js
-              uses: actions/setup-node@v3
-              with:
-                  node-version: "22.x"
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: npm
 
-            - name: Build plugin
-              run: |
-                  npm install
-                  npm run build
+      - name: Install dependencies
+        run: npm ci
 
-            - name: Create release
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  tag="${GITHUB_REF#refs/tags/}"
+      - name: Build plugin
+        run: npm run build
 
-                  gh release create "$tag" \
-                    --title="$tag" \
-                    --draft \
-                    main.js manifest.json
+      - name: Check Svelte
+        run: npm run svelte-check
+
+      - name: Verify manifest version matches tag
+        run: |
+          version="$(node -p "require('./manifest.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          test "$version" = "$tag"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css \
+            --title "PaperFlow $GITHUB_REF_NAME" \
+            --notes "PaperFlow $GITHUB_REF_NAME"
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css

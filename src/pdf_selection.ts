@@ -1,4 +1,4 @@
-import { loadPdfJs } from "obsidian";
+import { loadPdfJs, normalizePath } from "obsidian";
 import type { HighlightCategory } from "./setting_tab";
 
 const PDF_TEXT_TIMEOUT_MS = 30000;
@@ -24,6 +24,16 @@ interface PdfJsDocument {
 
 interface PdfJsPage {
 	getTextContent(): Promise<{ items: TextContentItem[] }>;
+}
+
+interface VaultAdapterLike {
+	readBinary(path: string): Promise<ArrayBuffer>;
+}
+
+interface AppLike {
+	vault: {
+		adapter: VaultAdapterLike;
+	};
 }
 
 export interface PdfCalloutCategoryConfig {
@@ -120,24 +130,25 @@ function withTimeout<T>(
 	});
 }
 
-async function readPdfBytes(pdfFullPath: string): Promise<Uint8Array> {
-	if (typeof require === "undefined") {
-		throw new Error("PDF++ highlight extraction requires Obsidian desktop.");
-	}
-
-	const fs = require("fs") as typeof import("fs");
-	const data = await fs.promises.readFile(pdfFullPath);
+async function readPdfBytes(
+	app: AppLike,
+	pdfVaultPath: string
+): Promise<Uint8Array> {
+	const data = await app.vault.adapter.readBinary(
+		normalizePath(pdfVaultPath)
+	);
 	return new Uint8Array(data);
 }
 
 async function extractPageTextIndex(
-	pdfFullPath: string,
+	app: AppLike,
+	pdfVaultPath: string,
 	page: number,
 	abortSignal?: AbortSignal
 ): Promise<PageTextIndex | null> {
 	try {
 		const pdfjsLib = await loadPdfJs();
-		const bytes = await readPdfBytes(pdfFullPath);
+		const bytes = await readPdfBytes(app, pdfVaultPath);
 		const loadingTask = pdfjsLib.getDocument({ data: bytes });
 		const document = (await withTimeout(
 			loadingTask.promise,
@@ -277,7 +288,8 @@ export function applyPdfCalloutCategoryColors(
 
 export async function addPdfSelectionsToCallouts(
 	markdown: string,
-	pdfFullPath: string,
+	app: AppLike,
+	pdfVaultPath: string,
 	abortSignal?: AbortSignal
 ): Promise<string> {
 	const calloutPattern =
@@ -296,7 +308,7 @@ export async function addPdfSelectionsToCallouts(
 		if (!pageCache.has(page)) {
 			pageCache.set(
 				page,
-				await extractPageTextIndex(pdfFullPath, page, abortSignal)
+				await extractPageTextIndex(app, pdfVaultPath, page, abortSignal)
 			);
 		}
 

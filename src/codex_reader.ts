@@ -1,4 +1,4 @@
-import { normalizePath } from "obsidian";
+import { loadPdfJs, normalizePath } from "obsidian";
 
 import type { Paper } from "./arxiv";
 import {
@@ -19,6 +19,34 @@ type ExecFailure = NodeJS.ErrnoException & {
 	killed?: boolean;
 	signal?: string | null;
 };
+
+interface TextContentItem {
+	str: string;
+}
+
+interface PdfJsPage {
+	getTextContent(): Promise<{ items: TextContentItem[] }>;
+}
+
+interface PdfJsDocument {
+	numPages: number;
+	getPage(page: number): Promise<PdfJsPage>;
+	destroy?: () => void;
+}
+
+interface VaultAdapterLike {
+	getFullPath(path: string): string;
+	read(path: string): Promise<string>;
+	readBinary(path: string): Promise<ArrayBuffer>;
+	remove(path: string): Promise<void>;
+}
+
+interface AppLike {
+	vault: {
+		configDir?: string;
+		adapter: VaultAdapterLike;
+	};
+}
 
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
@@ -100,66 +128,119 @@ function fillPromptTemplate(
 	});
 }
 
-function extractPdfText(
-	pdfFullPath: string,
+function withTimeout<T>(
+	operation: Promise<T>,
+	timeoutMs: number,
+	message: string,
 	abortSignal?: AbortSignal
-): Promise<string> {
+): Promise<T> {
 	return new Promise((resolve, reject) => {
 		if (abortSignal?.aborted) {
 			reject(new Error("Read with Codex canceled."));
 			return;
 		}
 
-		const { execFile } = require("child_process") as typeof import("child_process");
 		let settled = false;
-		const child = execFile(
-			"pdftotext",
-			["-layout", "-enc", "UTF-8", pdfFullPath, "-"],
-			{
-				timeout: PDF_TEXT_TIMEOUT_MS,
-				maxBuffer: 1024 * 1024 * 8,
-			},
-			(error, stdout, stderr) => {
-				if (settled) {
-					return;
-				}
-				settled = true;
-				abortSignal?.removeEventListener("abort", abortExtract);
-
-				if (error) {
-					const details = [stderr.trim(), stdout.trim()]
-						.filter(Boolean)
-						.join("\n")
-						.trim();
-					reject(
-						new Error(
-							details
-								? `Failed to extract PDF text: ${details}`
-								: getErrorMessage(error)
-						)
-					);
-					return;
-				}
-
-				resolve(stdout.slice(0, MAX_PDF_TEXT_CHARS));
-			}
-		);
-
-		const abortExtract = () => {
+		const timeoutId = window.setTimeout(() => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			child.kill("SIGTERM");
+			reject(new Error(message));
+		}, timeoutMs);
+
+		const abort = () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			window.clearTimeout(timeoutId);
 			reject(new Error("Read with Codex canceled."));
 		};
 
-		abortSignal?.addEventListener("abort", abortExtract);
+		abortSignal?.addEventListener("abort", abort);
+
+		operation.then(
+			(value) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				window.clearTimeout(timeoutId);
+				abortSignal?.removeEventListener("abort", abort);
+				resolve(value);
+			},
+			(error) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				window.clearTimeout(timeoutId);
+				abortSignal?.removeEventListener("abort", abort);
+				reject(error);
+			}
+		);
 	});
+}
+
+async function extractPdfText(
+	app: AppLike,
+	pdfVaultPath: string,
+	abortSignal?: AbortSignal
+): Promise<string> {
+	const pdfjsLib = await loadPdfJs();
+	const data = await app.vault.adapter.readBinary(normalizePath(pdfVaultPath));
+	const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data) });
+	const document = (await withTimeout(
+		loadingTask.promise,
+		PDF_TEXT_TIMEOUT_MS,
+		"Timed out while loading PDF text.",
+		abortSignal
+	)) as PdfJsDocument;
+
+	try {
+		const pages: string[] = [];
+		for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+			if (abortSignal?.aborted) {
+				throw new Error("Read with Codex canceled.");
+			}
+
+			const page = await withTimeout(
+				document.getPage(pageNumber),
+				PDF_TEXT_TIMEOUT_MS,
+				"Timed out while loading PDF page text.",
+				abortSignal
+			);
+			const textContent = await withTimeout(
+				page.getTextContent(),
+				PDF_TEXT_TIMEOUT_MS,
+				"Timed out while extracting PDF page text.",
+				abortSignal
+			);
+			const pageText = (textContent.items as TextContentItem[])
+				.map((item) => item.str)
+				.join(" ")
+				.replace(/\s+/g, " ")
+				.trim();
+
+			if (pageText) {
+				pages.push(`Page ${pageNumber}\n${pageText}`);
+			}
+
+			if (pages.join("\n\n").length >= MAX_PDF_TEXT_CHARS) {
+				break;
+			}
+		}
+
+		return pages.join("\n\n").slice(0, MAX_PDF_TEXT_CHARS);
+	} finally {
+		document.destroy?.();
+	}
 }
 
 function runCodexCommand(
 	command: string,
+	app: AppLike,
 	vaultRoot: string,
 	prompt: string,
 	abortSignal?: AbortSignal
@@ -171,16 +252,18 @@ function runCodexCommand(
 		}
 
 		const { execFile } = require("child_process") as typeof import("child_process");
-		const fs = require("fs") as typeof import("fs");
-		const os = require("os") as typeof import("os");
-		const path = require("path") as typeof import("path");
 		let settled = false;
-		const outputPath = path.join(
-			os.tmpdir(),
-			`paper-importer-codex-${Date.now()}-${Math.random()
+		const outputVaultPath = normalizePath(
+			`${app.vault.configDir || ".obsidian"}/plugins/paperflow/codex-output-${Date.now()}-${Math.random()
 				.toString(16)
 				.slice(2)}.md`
 		);
+		const outputFullPath = app.vault.adapter.getFullPath(outputVaultPath);
+		const cleanupOutput = () => {
+			void app.vault.adapter.remove(outputVaultPath).catch(() => {
+				// Ignore cleanup failures for temporary output.
+			});
+		};
 
 		const child = execFile(
 			command,
@@ -196,7 +279,7 @@ function runCodexCommand(
 				"--color",
 				"never",
 				"--output-last-message",
-				outputPath,
+				outputFullPath,
 				prompt,
 			],
 			{
@@ -226,21 +309,18 @@ function runCodexCommand(
 									stderr
 								)
 							)
-						);
-						return;
-					}
+					);
+					return;
+				}
 
-					resolve(fs.readFileSync(outputPath, "utf8"));
-				} catch (readError) {
-					reject(readError);
-				} finally {
-					try {
-						if (fs.existsSync(outputPath)) {
-							fs.unlinkSync(outputPath);
-						}
-					} catch (_) {
-						// Ignore cleanup failures for temp output.
-					}
+					app.vault.adapter
+						.read(outputVaultPath)
+						.then(resolve)
+						.catch(reject)
+						.finally(cleanupOutput);
+				} catch (error_) {
+					cleanupOutput();
+					reject(error_);
 				}
 			}
 		);
@@ -251,13 +331,7 @@ function runCodexCommand(
 			}
 			settled = true;
 			child.kill("SIGTERM");
-			try {
-				if (fs.existsSync(outputPath)) {
-					fs.unlinkSync(outputPath);
-				}
-			} catch (_) {
-				// Ignore cleanup failures for temp output.
-			}
+			cleanupOutput();
 			reject(new Error("Read with Codex canceled."));
 		};
 
@@ -288,7 +362,7 @@ export async function readWithCodex(
 	const vaultRoot = app.vault.adapter.getFullPath("");
 	const normalizedPdfPath = normalizePath(pdfPath);
 	const pdfFullPath = app.vault.adapter.getFullPath(normalizedPdfPath);
-	const pdfText = await extractPdfText(pdfFullPath, abortSignal);
+	const pdfText = await extractPdfText(app, normalizedPdfPath, abortSignal);
 	const prompt = fillPromptTemplate(
 		settings.readingPrompt.trim() || DEFAULT_READING_PROMPT,
 		pdfFullPath,
@@ -302,7 +376,7 @@ export async function readWithCodex(
 	for (const command of getCodexCommands(settings)) {
 		try {
 			let output = stripCodeFence(
-				await runCodexCommand(command, vaultRoot, prompt, abortSignal)
+				await runCodexCommand(command, app, vaultRoot, prompt, abortSignal)
 			);
 
 			if (!output) {
@@ -316,7 +390,8 @@ export async function readWithCodex(
 			if (settings.includePdfHighlights) {
 				output = await addPdfSelectionsToCallouts(
 					output,
-					pdfFullPath,
+					app,
+					normalizedPdfPath,
 					abortSignal
 				);
 			}

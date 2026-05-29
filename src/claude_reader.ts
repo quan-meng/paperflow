@@ -222,7 +222,8 @@ export async function readWithClaude(
 			if (settings.includePdfHighlights) {
 				output = await addPdfSelectionsToCallouts(
 					output,
-					pdfFullPath,
+					app,
+					normalizedPdfPath,
 					abortSignal
 				);
 			}

@@ -106,7 +106,7 @@ The reading prompt supports these placeholders:
 ```
 
 `{{ pdf_text }}` is mainly for Codex. PaperFlow extracts bounded PDF text locally
-with `pdftotext`.
+through the bundled PDF text layer.
 
 ## PDF++ Highlights
 
@@ -172,7 +172,12 @@ Optional tools:
 
 - Claude Code CLI for `Read with Claude`.
 - Codex CLI for `Read with Codex`.
-- `pdftotext` for Codex text extraction.
+
+## Security
+
+PaperFlow runs local Claude or Codex CLI commands only when those reading
+features are explicitly enabled. Metadata import, PDF download, and PDF++
+matching do not execute shell commands.
 
 ## License
 
