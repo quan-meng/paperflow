@@ -13,8 +13,6 @@ PDF++ highlights.
 - Generate concise sections for idea, method, limitations, future work, and key sentences.
 - Add exact-match PDF++ highlights with configurable concepts and colors.
 
-![PaperFlow PDF selection](assets/paperflow-pdf-selection.svg)
-
 ## Installation
 
 ### Community Plugin
