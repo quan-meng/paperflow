@@ -22,9 +22,147 @@ If your plugin does not need CSS, delete this file.
 }
 
 .paper-importer-queue-options {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 	margin-top: 10px;
 	color: var(--text-muted);
 	font-size: 13px;
+}
+
+.paper-importer-queue-options label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.paper-importer-prompt-textarea {
+	width: 100%;
+	min-height: 520px;
+	resize: vertical;
+	font-family: var(--font-monospace);
+	font-size: 13px;
+	line-height: 1.5;
+	tab-size: 2;
+}
+
+.paper-importer-prompt-setting {
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.paper-importer-prompt-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.paper-importer-prompt-header h3 {
+	margin: 0 0 4px;
+}
+
+.paper-importer-prompt-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+
+.paper-importer-prompt-toolbar-label {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.paper-importer-placeholder-button {
+	border-radius: 4px;
+	padding: 2px 6px;
+	font-family: var(--font-monospace);
+	font-size: 11px;
+}
+
+.paper-importer-prompt-help {
+	margin-top: 10px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.paper-importer-prompt-help ul {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	margin: 6px 0 0;
+	padding-left: 18px;
+	font-family: var(--font-monospace);
+}
+
+.paper-importer-highlight-setting {
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.paper-importer-highlight-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.paper-importer-highlight-header h3 {
+	margin: 0 0 4px;
+}
+
+.paper-importer-highlight-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.paper-importer-highlight-row {
+	display: grid;
+	grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px) auto;
+	gap: 8px;
+	align-items: center;
+	padding: 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+}
+
+.paper-importer-highlight-name,
+.paper-importer-highlight-hex {
+	width: 100%;
+}
+
+.paper-importer-highlight-color {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.paper-importer-highlight-picker {
+	width: 34px;
+	min-width: 34px;
+	height: 30px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+}
+
+.paper-importer-highlight-remove {
+	white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+	.paper-importer-highlight-row {
+		grid-template-columns: 1fr;
+	}
 }
 
 .paper-importer-queue-empty {
@@ -41,10 +179,37 @@ If your plugin does not need CSS, delete this file.
 }
 
 .paper-importer-task {
+	position: relative;
+	overflow: hidden;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 6px;
 	padding: 10px;
 	background: var(--background-secondary);
+	transition:
+		border-color 0.2s ease,
+		box-shadow 0.2s ease,
+		transform 0.2s ease;
+	animation: paper-importer-card-in 0.22s ease-out;
+}
+
+.paper-importer-task-running {
+	border-color: rgba(var(--interactive-accent-rgb), 0.42);
+	box-shadow: 0 0 0 1px rgba(var(--interactive-accent-rgb), 0.12);
+}
+
+.paper-importer-task-running::before {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	content: "";
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		rgba(var(--interactive-accent-rgb), 0.08) 45%,
+		transparent 90%
+	);
+	transform: translateX(-100%);
+	animation: paper-importer-sweep 2.4s ease-in-out infinite;
 }
 
 .paper-importer-task-header {
@@ -72,6 +237,7 @@ If your plugin does not need CSS, delete this file.
 .paper-importer-task-running .paper-importer-task-status {
 	background: rgba(var(--interactive-accent-rgb), 0.14);
 	color: var(--text-accent);
+	animation: paper-importer-status-pulse 1.4s ease-in-out infinite;
 }
 
 .paper-importer-task-success .paper-importer-task-status {
@@ -84,6 +250,19 @@ If your plugin does not need CSS, delete this file.
 	color: rgb(255, 69, 58);
 }
 
+.paper-importer-task-canceled .paper-importer-task-status {
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.paper-importer-task-cancel {
+	flex: 0 0 auto;
+	border-radius: 4px;
+	padding: 2px 8px;
+	font-size: 11px;
+	line-height: 1.4;
+}
+
 .paper-importer-task-mode,
 .paper-importer-task-log {
 	margin-top: 6px;
@@ -94,6 +273,7 @@ If your plugin does not need CSS, delete this file.
 }
 
 .paper-importer-task-progress {
+	position: relative;
 	height: 6px;
 	margin-top: 8px;
 	overflow: hidden;
@@ -102,11 +282,193 @@ If your plugin does not need CSS, delete this file.
 }
 
 .paper-importer-task-progress-bar {
+	position: relative;
 	height: 100%;
 	background: var(--interactive-accent);
 	transition: width 0.2s ease;
 }
 
+.paper-importer-task-running .paper-importer-task-progress-bar {
+	background:
+		linear-gradient(
+			90deg,
+			rgba(255, 255, 255, 0.18) 25%,
+			transparent 25%,
+			transparent 50%,
+			rgba(255, 255, 255, 0.18) 50%,
+			rgba(255, 255, 255, 0.18) 75%,
+			transparent 75%
+		),
+		var(--interactive-accent);
+	background-size: 18px 18px;
+	animation: paper-importer-progress-stripes 0.7s linear infinite;
+}
+
+.paper-importer-task-running .paper-importer-task-progress-bar::after {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 36px;
+	content: "";
+	background: linear-gradient(
+		90deg,
+		transparent,
+		rgba(255, 255, 255, 0.36),
+		transparent
+	);
+	animation: paper-importer-progress-glint 1.5s ease-in-out infinite;
+}
+
+.paper-importer-task-progress-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 8px;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.paper-importer-task-running .paper-importer-task-progress-meta span:first-child::before {
+	display: inline-block;
+	width: 0.65em;
+	height: 0.65em;
+	margin-right: 6px;
+	border-radius: 999px;
+	background: var(--interactive-accent);
+	content: "";
+	animation: paper-importer-dot 1s ease-in-out infinite;
+}
+
+.paper-importer-task-duration {
+	white-space: nowrap;
+}
+
+.paper-importer-task-logs {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 8px;
+}
+
+.paper-importer-task-log {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	margin-top: 0;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+	animation: paper-importer-log-in 0.18s ease-out;
+}
+
+.paper-importer-task-log-level {
+	flex: 0 0 auto;
+	border-radius: 3px;
+	padding: 1px 5px;
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: 10px;
+	text-transform: uppercase;
+}
+
+.paper-importer-task-log-error .paper-importer-task-log-level {
+	background: rgba(255, 59, 48, 0.14);
+	color: rgb(255, 69, 58);
+}
+
+.paper-importer-task-log-success .paper-importer-task-log-level {
+	background: rgba(52, 199, 89, 0.14);
+	color: rgb(48, 209, 88);
+}
+
+.paper-importer-task-log-message {
+	min-width: 0;
+}
+
+.paper-importer-task-error-message {
+	margin-top: 8px;
+	color: rgb(255, 69, 58);
+	font-size: 12px;
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+
 .paper-importer-task-open {
 	margin-top: 8px;
+	animation: paper-importer-card-in 0.2s ease-out;
+}
+
+@keyframes paper-importer-card-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes paper-importer-sweep {
+	0% {
+		transform: translateX(-100%);
+	}
+	55%,
+	100% {
+		transform: translateX(100%);
+	}
+}
+
+@keyframes paper-importer-status-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0);
+	}
+	50% {
+		box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.16);
+	}
+}
+
+@keyframes paper-importer-progress-stripes {
+	from {
+		background-position: 0 0;
+	}
+	to {
+		background-position: 18px 0;
+	}
+}
+
+@keyframes paper-importer-progress-glint {
+	from {
+		left: -42px;
+	}
+	to {
+		left: 100%;
+	}
+}
+
+@keyframes paper-importer-dot {
+	0%,
+	100% {
+		opacity: 0.45;
+		transform: scale(0.82);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+@keyframes paper-importer-log-in {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }

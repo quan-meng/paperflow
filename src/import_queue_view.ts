@@ -1,22 +1,49 @@
-import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 
 import { ImportModal } from "./import_modal.svelte";
 import type PaperImporterPlugin from "./main";
 
 export const IMPORT_QUEUE_VIEW_TYPE = "paper-importer-queue";
 
-type ImportTaskStatus = "queued" | "running" | "success" | "error";
+type ImportTaskStatus =
+	| "queued"
+	| "running"
+	| "success"
+	| "error"
+	| "canceled";
 
 interface ImportTask {
 	id: number;
 	input: string;
 	arxivId: string;
 	downloadPdf: boolean;
+	readWithClaude: boolean;
+	readWithCodex: boolean;
+	includePdfHighlights: boolean;
 	status: ImportTaskStatus;
 	states: Record<string, any>;
 	notePath?: string;
 	pdfPath?: string;
 	error?: string;
+	startedAt?: number;
+	finishedAt?: number;
+	abortController?: AbortController;
+}
+
+interface TaskCardElements {
+	rootEl: HTMLElement;
+	titleEl: HTMLElement;
+	statusEl: HTMLElement;
+	cancelButtonEl?: HTMLButtonElement;
+	modeEl: HTMLElement;
+	progressLabelEl: HTMLElement;
+	durationEl: HTMLElement;
+	progressBarEl: HTMLElement;
+	logsEl: HTMLElement;
+	errorEl: HTMLElement;
+	actionsEl: HTMLElement;
+	logsSignature: string;
+	hasOpenButton: boolean;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -31,11 +58,15 @@ export class ImportQueueView extends ItemView {
 	private plugin: PaperImporterPlugin;
 	private nextTaskId = 1;
 	private tasks: ImportTask[] = [];
-	private processing = false;
 	private inputEl?: HTMLInputElement;
+	private importButtonEl?: HTMLButtonElement;
 	private downloadPdfEl?: HTMLInputElement;
+	private readWithClaudeEl?: HTMLInputElement;
+	private readWithCodexEl?: HTMLInputElement;
+	private includePdfHighlightsEl?: HTMLInputElement;
 	private taskListEl?: HTMLElement;
 	private emptyEl?: HTMLElement;
+	private taskElements = new Map<number, TaskCardElements>();
 
 	constructor(leaf: WorkspaceLeaf, plugin: PaperImporterPlugin) {
 		super(leaf);
@@ -47,7 +78,7 @@ export class ImportQueueView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return "Paper import queue";
+		return "PaperFlow";
 	}
 
 	getIcon(): string {
@@ -64,6 +95,7 @@ export class ImportQueueView extends ItemView {
 		if (this.downloadPdfEl) {
 			this.downloadPdfEl.checked = downloadPdf;
 		}
+		this.updateClaudeAvailability();
 	}
 
 	focusInput(): void {
@@ -75,9 +107,10 @@ export class ImportQueueView extends ItemView {
 	private render(): void {
 		const { contentEl } = this;
 		contentEl.empty();
+		this.taskElements.clear();
 		contentEl.addClass("paper-importer-queue-view");
 
-		contentEl.createEl("h4", { text: "Paper Import Queue" });
+		contentEl.createEl("h4", { text: "PaperFlow" });
 
 		const formEl = contentEl.createDiv("paper-importer-queue-form");
 		this.inputEl = formEl.createEl("input", {
@@ -91,8 +124,8 @@ export class ImportQueueView extends ItemView {
 			}
 		});
 
-		const addButtonEl = formEl.createEl("button", { text: "Queue" });
-		addButtonEl.addEventListener("click", () => {
+		this.importButtonEl = formEl.createEl("button", { text: "Import" });
+		this.importButtonEl.addEventListener("click", () => {
 			this.enqueueFromInput();
 		});
 
@@ -102,10 +135,54 @@ export class ImportQueueView extends ItemView {
 			type: "checkbox",
 		});
 		this.downloadPdfEl.checked = true;
+		this.downloadPdfEl.addEventListener("change", () => {
+			this.updateClaudeAvailability();
+		});
 		labelEl.appendText(" Download PDF");
 
+		const claudeLabelEl = optionsEl.createEl("label");
+		this.readWithClaudeEl = claudeLabelEl.createEl("input", {
+			type: "checkbox",
+		});
+		this.readWithClaudeEl.checked = this.plugin.settings.readWithClaude;
+		this.readWithClaudeEl.addEventListener("change", async () => {
+			this.plugin.settings.readWithClaude =
+				this.readWithClaudeEl?.checked ?? false;
+			await this.plugin.saveSettings();
+			this.updateClaudeAvailability();
+		});
+		claudeLabelEl.appendText(" Read with Claude");
+
+		const codexLabelEl = optionsEl.createEl("label");
+		this.readWithCodexEl = codexLabelEl.createEl("input", {
+			type: "checkbox",
+		});
+		this.readWithCodexEl.checked = this.plugin.settings.readWithCodex;
+		this.readWithCodexEl.addEventListener("change", async () => {
+			this.plugin.settings.readWithCodex =
+				this.readWithCodexEl?.checked ?? false;
+			await this.plugin.saveSettings();
+			this.updateClaudeAvailability();
+		});
+		codexLabelEl.appendText(" Read with Codex");
+
+		const highlightsLabelEl = optionsEl.createEl("label");
+		this.includePdfHighlightsEl = highlightsLabelEl.createEl("input", {
+			type: "checkbox",
+		});
+		this.includePdfHighlightsEl.checked =
+			this.plugin.settings.includePdfHighlights;
+		this.includePdfHighlightsEl.addEventListener("change", async () => {
+			this.plugin.settings.includePdfHighlights =
+				this.includePdfHighlightsEl?.checked ?? false;
+			await this.plugin.saveSettings();
+		});
+		highlightsLabelEl.appendText(" Include PDF++ highlights");
+
+		this.updateClaudeAvailability();
+
 		this.emptyEl = contentEl.createDiv("paper-importer-queue-empty");
-		this.emptyEl.setText("No queued imports.");
+		this.emptyEl.setText("Enter an arXiv ID or URL to import.");
 
 		this.taskListEl = contentEl.createDiv("paper-importer-queue-list");
 		this.renderTasks();
@@ -114,26 +191,71 @@ export class ImportQueueView extends ItemView {
 	private enqueueFromInput(): void {
 		const input = this.inputEl?.value.trim() || "";
 		const downloadPdf = this.downloadPdfEl?.checked ?? true;
+		const readWithClaude = this.readWithClaudeEl?.checked ?? false;
+		const readWithCodex = this.readWithCodexEl?.checked ?? false;
+		const includePdfHighlights =
+			this.includePdfHighlightsEl?.checked ?? false;
 
 		if (!input) {
-			new Notice("Enter an arXiv ID or URL to queue.");
+			new Notice("Enter an arXiv ID or URL to import.");
 			return;
 		}
 
-		this.enqueue(input, downloadPdf);
+		this.startImport(
+			input,
+			downloadPdf,
+			readWithClaude,
+			readWithCodex,
+			includePdfHighlights
+		);
 
 		if (this.inputEl) {
-			this.inputEl.value = "";
-			this.inputEl.focus();
+			this.inputEl.disabled = true;
+		}
+		if (this.importButtonEl) {
+			this.importButtonEl.disabled = true;
 		}
 	}
 
-	private enqueue(input: string, downloadPdf: boolean): void {
+	private updateClaudeAvailability(): void {
+		if (
+			!this.readWithClaudeEl ||
+			!this.readWithCodexEl ||
+			!this.includePdfHighlightsEl
+		) {
+			return;
+		}
+
+		const downloadPdf = this.downloadPdfEl?.checked ?? true;
+		const hasReader =
+			this.readWithClaudeEl.checked || this.readWithCodexEl.checked;
+		this.readWithClaudeEl.disabled = !downloadPdf;
+		this.readWithCodexEl.disabled = !downloadPdf;
+		this.includePdfHighlightsEl.disabled = !downloadPdf || !hasReader;
+		if (!downloadPdf) {
+			this.readWithClaudeEl.checked = false;
+			this.readWithCodexEl.checked = false;
+			this.includePdfHighlightsEl.checked = false;
+		}
+	}
+
+	private startImport(
+		input: string,
+		downloadPdf: boolean,
+		readWithClaude: boolean,
+		readWithCodex: boolean,
+		includePdfHighlights: boolean
+	): void {
 		let arxivId: string;
 		try {
 			const parser = new ImportModal(
 				this.app,
-				this.plugin.settings,
+				{
+					...this.plugin.settings,
+					readWithClaude,
+					readWithCodex,
+					includePdfHighlights,
+				},
 				downloadPdf
 			);
 			arxivId = parser.extractArxivId(input);
@@ -142,43 +264,31 @@ export class ImportQueueView extends ItemView {
 			return;
 		}
 
-		this.tasks.push({
+		const task: ImportTask = {
 			id: this.nextTaskId++,
 			input,
 			arxivId,
 			downloadPdf,
+			readWithClaude,
+			readWithCodex,
+			includePdfHighlights,
 			status: "queued",
 			states: {
 				logs: [["info", "Queued"]],
 				downloadProgress: 0,
 			},
-		});
+		};
 
+		this.tasks = [task];
 		this.renderTasks();
-		void this.processQueue();
-	}
-
-	private async processQueue(): Promise<void> {
-		if (this.processing) {
-			return;
-		}
-
-		this.processing = true;
-
-		try {
-			let task = this.tasks.find((item) => item.status === "queued");
-			while (task) {
-				await this.runTask(task);
-				task = this.tasks.find((item) => item.status === "queued");
-			}
-		} finally {
-			this.processing = false;
-			this.renderTasks();
-		}
+		void this.runTask(task);
 	}
 
 	private async runTask(task: ImportTask): Promise<void> {
 		task.status = "running";
+		task.startedAt = Date.now();
+		task.finishedAt = undefined;
+		task.abortController = new AbortController();
 		task.states.logs = [
 			[
 				"info",
@@ -187,6 +297,7 @@ export class ImportQueueView extends ItemView {
 					: "Importing metadata...",
 			],
 		];
+		task.states.statusMessage = task.states.logs[0][1];
 		task.states.downloadProgress = 0;
 		this.renderTasks();
 
@@ -197,10 +308,16 @@ export class ImportQueueView extends ItemView {
 		try {
 			const runner = new ImportModal(
 				this.app,
-				this.plugin.settings,
+				{
+					...this.plugin.settings,
+					readWithClaude: task.readWithClaude,
+					readWithCodex: task.readWithCodex,
+					includePdfHighlights: task.includePdfHighlights,
+				},
 				task.downloadPdf
 			);
 			runner.states = task.states;
+			runner.abortSignal = task.abortController.signal;
 
 			const [notePath, pdfPath] = await runner.searchAndImportPaper(
 				task.arxivId
@@ -209,16 +326,50 @@ export class ImportQueueView extends ItemView {
 			task.notePath = notePath;
 			task.pdfPath = pdfPath;
 			task.status = "success";
+			task.finishedAt = Date.now();
 			task.states.logs.push(["success", "Import completed"]);
 			new Notice(`Imported ${task.arxivId}`);
+			await this.openNoteInThisTab(notePath);
 		} catch (error) {
-			task.status = "error";
-			task.error = getErrorMessage(error);
-			task.states.logs.push(["error", task.error]);
-			new Notice(`Import failed: ${task.error}`);
+			task.finishedAt = Date.now();
+			if (task.abortController.signal.aborted) {
+				task.status = "canceled";
+				task.states.logs.push(["warn", "Import canceled"]);
+				new Notice(`Canceled ${task.arxivId}`);
+			} else {
+				task.status = "error";
+				task.error = getErrorMessage(error);
+				task.states.logs.push(["error", task.error]);
+				new Notice(`Import failed: ${task.error}`);
+			}
 		} finally {
 			window.clearInterval(refreshId);
+			task.abortController = undefined;
+			if (task.status !== "success") {
+				this.setFormEnabled(true);
+			}
 			this.renderTasks();
+		}
+	}
+
+	private setFormEnabled(enabled: boolean): void {
+		if (this.inputEl) {
+			this.inputEl.disabled = !enabled;
+		}
+		if (this.importButtonEl) {
+			this.importButtonEl.disabled = !enabled;
+		}
+		if (this.downloadPdfEl) {
+			this.downloadPdfEl.disabled = !enabled;
+		}
+		if (this.readWithClaudeEl) {
+			this.readWithClaudeEl.disabled = !enabled;
+		}
+		if (this.readWithCodexEl) {
+			this.readWithCodexEl.disabled = !enabled;
+		}
+		if (enabled) {
+			this.updateClaudeAvailability();
 		}
 	}
 
@@ -228,56 +379,324 @@ export class ImportQueueView extends ItemView {
 		}
 
 		this.emptyEl.toggle(this.tasks.length === 0);
-		this.taskListEl.empty();
 
-		for (const task of this.tasks) {
-			const taskEl = this.taskListEl.createDiv(
-				`paper-importer-task paper-importer-task-${task.status}`
-			);
-
-			const headerEl = taskEl.createDiv("paper-importer-task-header");
-			headerEl.createSpan({
-				text: task.arxivId,
-				cls: "paper-importer-task-title",
-			});
-			headerEl.createSpan({
-				text: task.status,
-				cls: "paper-importer-task-status",
-			});
-
-			taskEl.createDiv({
-				text: task.downloadPdf ? "Metadata + PDF" : "Metadata only",
-				cls: "paper-importer-task-mode",
-			});
-
-			if (task.status === "running" && task.downloadPdf) {
-				const progress = Math.round(task.states.downloadProgress || 0);
-				const progressEl = taskEl.createDiv(
-					"paper-importer-task-progress"
-				);
-				progressEl.createDiv({
-					cls: "paper-importer-task-progress-bar",
-					attr: { style: `width: ${progress}%;` },
-				});
-			}
-
-			const lastLog = task.states.logs[task.states.logs.length - 1];
-			if (lastLog) {
-				taskEl.createDiv({
-					text: lastLog[1],
-					cls: "paper-importer-task-log",
-				});
-			}
-
-			if (task.notePath) {
-				const openButtonEl = taskEl.createEl("button", {
-					text: "Open note",
-					cls: "paper-importer-task-open",
-				});
-				openButtonEl.addEventListener("click", async () => {
-					await this.app.workspace.openLinkText(task.notePath!, "", true);
-				});
+		const activeIds = new Set(this.tasks.map((task) => task.id));
+		for (const [taskId, elements] of this.taskElements) {
+			if (!activeIds.has(taskId)) {
+				elements.rootEl.remove();
+				this.taskElements.delete(taskId);
 			}
 		}
+
+		for (const task of this.tasks) {
+			let elements = this.taskElements.get(task.id);
+			if (!elements) {
+				elements = this.createTaskCard(task);
+				this.taskElements.set(task.id, elements);
+			}
+
+			if (elements.rootEl.parentElement !== this.taskListEl) {
+				this.taskListEl.appendChild(elements.rootEl);
+			}
+
+			this.updateTaskCard(task, elements);
+		}
+	}
+
+	private createTaskCard(task: ImportTask): TaskCardElements {
+		const rootEl = createDiv("paper-importer-task");
+		const headerEl = rootEl.createDiv("paper-importer-task-header");
+		const titleEl = headerEl.createSpan({
+			text: task.arxivId,
+			cls: "paper-importer-task-title",
+		});
+		const statusEl = headerEl.createSpan({
+			text: task.status,
+			cls: "paper-importer-task-status",
+		});
+		const cancelButtonEl = headerEl.createEl("button", {
+			text: "Cancel",
+			cls: "paper-importer-task-cancel",
+		});
+		cancelButtonEl.addEventListener("click", () => {
+			this.cancelTask(task);
+		});
+
+		const modeEl = rootEl.createDiv("paper-importer-task-mode");
+		const progressMetaEl = rootEl.createDiv(
+			"paper-importer-task-progress-meta"
+		);
+		const progressLabelEl = progressMetaEl.createSpan();
+		const durationEl = progressMetaEl.createSpan({
+			cls: "paper-importer-task-duration",
+		});
+		const progressEl = rootEl.createDiv("paper-importer-task-progress");
+		const progressBarEl = progressEl.createDiv(
+			"paper-importer-task-progress-bar"
+		);
+		const logsEl = rootEl.createDiv("paper-importer-task-logs");
+		const errorEl = rootEl.createDiv("paper-importer-task-error-message");
+		const actionsEl = rootEl.createDiv("paper-importer-task-actions");
+
+		return {
+			rootEl,
+			titleEl,
+			statusEl,
+			cancelButtonEl,
+			modeEl,
+			progressLabelEl,
+			durationEl,
+			progressBarEl,
+			logsEl,
+			errorEl,
+			actionsEl,
+			logsSignature: "",
+			hasOpenButton: false,
+		};
+	}
+
+	private updateTaskCard(
+		task: ImportTask,
+		elements: TaskCardElements
+	): void {
+		elements.rootEl.className = `paper-importer-task paper-importer-task-${task.status}`;
+		elements.titleEl.setText(task.arxivId);
+		elements.statusEl.setText(task.status);
+		elements.cancelButtonEl?.toggle(
+			task.status === "queued" || task.status === "running"
+		);
+		elements.modeEl.setText(this.getTaskMode(task));
+
+		const progress = this.getTaskProgress(task);
+		elements.progressLabelEl.setText(progress.label);
+		elements.durationEl.setText(this.getTaskDuration(task));
+		elements.progressBarEl.style.width = `${progress.percent}%`;
+
+		this.updateTaskLogs(task, elements);
+
+		elements.errorEl.setText(task.error || "");
+		elements.errorEl.toggle(Boolean(task.error));
+
+		if (task.notePath && !elements.hasOpenButton) {
+			const openButtonEl = elements.actionsEl.createEl("button", {
+				text: "Open note",
+				cls: "paper-importer-task-open",
+			});
+			openButtonEl.addEventListener("click", async () => {
+				await this.app.workspace.openLinkText(task.notePath!, "", true);
+			});
+			elements.hasOpenButton = true;
+		}
+	}
+
+	private updateTaskLogs(
+		task: ImportTask,
+		elements: TaskCardElements
+	): void {
+		let logs = task.states.logs.slice(-5);
+		const statusMessage = String(task.states.statusMessage || "").trim();
+		const lastLog = logs[logs.length - 1];
+		if (
+			task.status === "running" &&
+			statusMessage &&
+			(!lastLog || lastLog[1] !== statusMessage)
+		) {
+			logs = [...logs.slice(-4), ["info", statusMessage]];
+		}
+		const signature = JSON.stringify(logs);
+		if (signature === elements.logsSignature) {
+			return;
+		}
+
+		elements.logsSignature = signature;
+		elements.logsEl.empty();
+		elements.logsEl.toggle(logs.length > 0);
+		for (const [level, message] of logs) {
+			const logEl = elements.logsEl.createDiv(
+				`paper-importer-task-log paper-importer-task-log-${level}`
+			);
+			logEl.createSpan({
+				text: level,
+				cls: "paper-importer-task-log-level",
+			});
+			logEl.createSpan({
+				text: message,
+				cls: "paper-importer-task-log-message",
+			});
+		}
+	}
+
+	private getTaskProgress(task: ImportTask): {
+		percent: number;
+		label: string;
+	} {
+		if (task.status === "queued") {
+			return { percent: 0, label: "Ready to import" };
+		}
+
+		if (task.status === "success") {
+			return { percent: 100, label: "Complete" };
+		}
+
+		if (task.status === "error") {
+			return {
+				percent: Math.max(this.getRunningProgress(task).percent, 3),
+				label: "Failed",
+			};
+		}
+
+		if (task.status === "canceled") {
+			return { percent: 100, label: "Canceled" };
+		}
+
+		return this.getRunningProgress(task);
+	}
+
+	private getRunningProgress(task: ImportTask): {
+		percent: number;
+		label: string;
+	} {
+		const logs: string[] = task.states.logs
+			.map((log: [string, string]) => String(log[1]))
+			.reverse();
+		const currentMessage =
+			String(task.states.statusMessage || "").trim() ||
+			logs[0] ||
+			"Running...";
+		const downloadProgress = Math.round(task.states.downloadProgress || 0);
+
+		if (logs.some((message) => message.includes("Reading PDF with Codex"))) {
+			return { percent: 92, label: "Reading PDF with Codex..." };
+		}
+
+		if (
+			logs.some((message) =>
+				message.includes("Codex reading appended to note")
+			)
+		) {
+			return { percent: 97, label: "Codex reading appended" };
+		}
+
+		if (
+			logs.some((message) => message.includes("Reading PDF with Claude"))
+		) {
+			return { percent: 90, label: "Reading PDF with Claude..." };
+		}
+
+		if (
+			logs.some((message) =>
+				message.includes("Claude reading appended to note")
+			)
+		) {
+			return { percent: 94, label: "Claude reading appended" };
+		}
+
+		if (logs.some((message) => message.includes("Note created"))) {
+			return { percent: 85, label: "Note created" };
+		}
+
+		if (logs.some((message) => message.includes("Note already exists"))) {
+			return { percent: 85, label: "Note already exists" };
+		}
+
+		if (logs.some((message) => message.includes("Using default template"))) {
+			return { percent: 80, label: "Creating note..." };
+		}
+
+		if (logs.some((message) => message.includes("PDF downloaded"))) {
+			return { percent: 75, label: "PDF downloaded" };
+		}
+
+		if (logs.some((message) => message.includes("PDF already exists"))) {
+			return { percent: 75, label: "PDF already exists" };
+		}
+
+		if (logs.some((message) => message.includes("Starting PDF download"))) {
+			const percent = Math.min(
+				75,
+				Math.max(25, 25 + Math.round(downloadProgress * 0.5))
+			);
+			const label =
+				downloadProgress > 0
+					? `Downloading PDF ${downloadProgress}%`
+					: "Starting PDF download...";
+			return { percent, label };
+		}
+
+		if (logs.some((message) => message.includes("Found paper"))) {
+			return { percent: 20, label: "Metadata fetched" };
+		}
+
+		if (
+			logs.some((message) => message.includes("Fetching metadata"))
+		) {
+			return { percent: 8, label: "Fetching metadata..." };
+		}
+
+		return { percent: 5, label: currentMessage };
+	}
+
+	private async openNoteInThisTab(notePath: string): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(notePath);
+		if (file instanceof TFile) {
+			await this.leaf.openFile(file);
+			return;
+		}
+
+		await this.app.workspace.openLinkText(notePath, "", false);
+	}
+
+	private getTaskDuration(task: ImportTask): string {
+		if (!task.startedAt) {
+			return "";
+		}
+
+		const end = task.finishedAt || Date.now();
+		const totalSeconds = Math.max(
+			0,
+			Math.floor((end - task.startedAt) / 1000)
+		);
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+
+		if (minutes > 0) {
+			return `${minutes}m ${seconds}s`;
+		}
+
+		return `${seconds}s`;
+	}
+
+	private cancelTask(task: ImportTask): void {
+		if (task.status === "queued") {
+			task.status = "canceled";
+			task.finishedAt = Date.now();
+			task.states.logs.push(["warn", "Import canceled"]);
+			this.renderTasks();
+			return;
+		}
+
+		if (task.status === "running") {
+			task.abortController?.abort();
+			task.states.logs.push(["warn", "Cancel requested..."]);
+			this.renderTasks();
+		}
+	}
+
+	private getTaskMode(task: ImportTask): string {
+		const parts = ["Metadata"];
+		if (task.downloadPdf) {
+			parts.push("PDF");
+		}
+		if (task.readWithClaude) {
+			parts.push("Claude");
+		}
+		if (task.readWithCodex) {
+			parts.push("Codex");
+		}
+		if (task.includePdfHighlights) {
+			parts.push("PDF++");
+		}
+
+		return parts.join(" + ");
 	}
 }

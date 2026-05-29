@@ -1,6 +1,7 @@
 import { requestUrl } from "obsidian";
 
-const ARXIV_API_TIMEOUT_MS = 30000;
+const ARXIV_ABS_TIMEOUT_MS = 15000;
+const ARXIV_API_TIMEOUT_MS = 15000;
 
 export interface Paper {
 	paperId: string;
@@ -42,13 +43,91 @@ function getNamespacedText(
 	);
 }
 
-export async function searchPaper(arxivId: string): Promise<Paper> {
+function getMetaContent(document: Document, selector: string): string {
+	return document.querySelector(selector)?.getAttribute("content")?.trim() || "";
+}
+
+function getVersionedPaperIdFromAbsPage(
+	document: Document,
+	arxivId: string
+): string {
+	const ogUrl = getMetaContent(document, "meta[property='og:url']");
+	const ogPaperId = ogUrl.split("/abs/").pop()?.trim();
+	if (ogPaperId) {
+		return ogPaperId;
+	}
+
+	return arxivId;
+}
+
+function getCommentsFromAbsPage(document: Document): string {
+	const tableRows = Array.from(document.querySelectorAll(".metatable tr"));
+	const commentsRow = tableRows.find((row) =>
+		row
+			.querySelector(".label")
+			?.textContent?.trim()
+			.toLowerCase()
+			.startsWith("comments")
+	);
+
+	return (
+		commentsRow?.querySelector(".tablecell:not(.label)")?.textContent?.trim() ||
+		""
+	);
+}
+
+async function searchPaperFromAbsPage(arxivId: string): Promise<Paper> {
+	const url = `https://arxiv.org/abs/${encodeURIComponent(arxivId)}`;
+	const response = await withTimeout(
+		requestUrl({ url }),
+		ARXIV_ABS_TIMEOUT_MS,
+		"Timed out while fetching metadata from the arXiv abstract page."
+	);
+
+	const parser = new DOMParser();
+	const document = parser.parseFromString(response.text, "text/html");
+
+	const title = getMetaContent(document, "meta[name='citation_title']");
+	if (!title) {
+		throw new Error("No arXiv metadata was found on the abstract page.");
+	}
+
+	const authors = Array.from(
+		document.querySelectorAll("meta[name='citation_author']")
+	)
+		.map((author) => author.getAttribute("content")?.trim() || "")
+		.filter(Boolean);
+
+	const date = getMetaContent(document, "meta[name='citation_date']");
+	const abstract =
+		getMetaContent(document, "meta[name='citation_abstract']") ||
+		getMetaContent(document, "meta[property='og:description']") ||
+		"No abstract available";
+	const paperId = getVersionedPaperIdFromAbsPage(document, arxivId);
+	const pdfUrl =
+		getMetaContent(document, "meta[name='citation_pdf_url']")
+			.replace(/^http:\/\//i, "https://")
+			.replace(/\/pdf\/([^v]+)$/i, `/pdf/${paperId}`) ||
+		`https://arxiv.org/pdf/${paperId}`;
+
+	return {
+		paperId,
+		title,
+		authors,
+		date,
+		abstract,
+		comments: getCommentsFromAbsPage(document),
+		pdfUrl,
+	};
+}
+
+async function searchPaperFromApi(arxivId: string): Promise<Paper> {
 	const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`;
 
 	const response = await withTimeout(
 		requestUrl({ url }),
 		ARXIV_API_TIMEOUT_MS,
-		"Timed out while fetching metadata from arXiv. Please try again later."
+		"Timed out while fetching metadata from the arXiv API."
 	);
 	const parser = new DOMParser();
 	const xml = parser.parseFromString(response.text, "text/xml");
@@ -108,4 +187,20 @@ export async function searchPaper(arxivId: string): Promise<Paper> {
 		comments,
 		pdfUrl,
 	};
+}
+
+export async function searchPaper(arxivId: string): Promise<Paper> {
+	try {
+		return await searchPaperFromAbsPage(arxivId);
+	} catch (absPageError) {
+		try {
+			return await searchPaperFromApi(arxivId);
+		} catch (apiError) {
+			throw new Error(
+				`Failed to fetch arXiv metadata from the abstract page or API. Abstract page: ${
+					(absPageError as Error).message
+				}. API: ${(apiError as Error).message}`
+			);
+		}
+	}
 }

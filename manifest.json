@@ -1,11 +1,11 @@
 {
-	"id": "paper_importer",
-	"name": "Paper Importer",
+	"id": "paperflow",
+	"name": "PaperFlow",
 	"version": "1.5.0",
 	"minAppVersion": "1.7.6",
-	"description": "Import papers from arXiv with one click.",
-	"author": "Zhe Chen",
-	"authorUrl": "https://zchen.im",
+	"description": "Import, read, and annotate arXiv papers in Obsidian.",
+	"author": "Quan Meng",
+	"authorUrl": "https://github.com/quan-meng",
 	"fundingUrl": "",
 	"isDesktopOnly": false
 }

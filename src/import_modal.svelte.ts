@@ -3,6 +3,8 @@ import { mount, unmount } from "svelte";
 
 import ImportDialog from "./component/ImportDialog.svelte";
 
+import { readWithClaude } from "./claude_reader";
+import { readWithCodex } from "./codex_reader";
 import { searchPaper } from "./arxiv";
 import { DEFAULT_TEMPLATE } from "./default_template";
 import type { PaperImporterPluginSettings } from "./setting_tab";
@@ -84,10 +86,12 @@ function formatDateForObsidian(dateString: string): string {
 export class ImportModal extends Modal {
 	settings: PaperImporterPluginSettings;
 	downloadPdf: boolean;
+	abortSignal?: AbortSignal;
 	importDialog: ReturnType<typeof ImportDialog> | null = null;
 	states: Record<string, any> = $state({
 		logs: [],
 		downloadProgress: 0,
+		statusMessage: "",
 	});
 
 	constructor(
@@ -169,9 +173,11 @@ export class ImportModal extends Modal {
 	}
 
 	async searchAndImportPaper(arxivId: string): Promise<[string, string]> {
-		this.states.logs.push(["info", "Fetching metadata from arXiv..."]);
+		this.throwIfAborted();
+		this.addLog("info", "Fetching metadata from arXiv...");
 		const paper = await searchPaper(arxivId);
-		this.states.logs.push(["info", `Found paper: ${paper.title}`]);
+		this.throwIfAborted();
+		this.addLog("info", `Found paper: ${paper.title}`);
 
 		let pdfPath = "";
 
@@ -179,10 +185,68 @@ export class ImportModal extends Modal {
 			pdfPath = await this.downloadPdfFile(paper);
 		}
 
+		this.throwIfAborted();
 		const notePath = await this.createNoteFromPaper(paper, pdfPath);
+
+		if (this.settings.readWithClaude) {
+			if (pdfPath) {
+				this.throwIfAborted();
+				this.addLog("info", "Reading PDF with Claude...");
+				await readWithClaude(
+					this.app,
+					this.settings,
+					paper,
+					pdfPath,
+					notePath,
+					this.abortSignal
+				);
+				this.addLog("info", "Claude reading appended to note");
+			} else {
+				this.addLog(
+					"warn",
+					"Read with Claude skipped because no PDF was downloaded"
+				);
+			}
+		}
+
+		if (this.settings.readWithCodex) {
+			if (pdfPath) {
+				this.throwIfAborted();
+				this.addLog("info", "Reading PDF with Codex...");
+				await readWithCodex(
+					this.app,
+					this.settings,
+					paper,
+					pdfPath,
+					notePath,
+					this.abortSignal
+				);
+				this.addLog("info", "Codex reading appended to note");
+			} else {
+				this.addLog(
+					"warn",
+					"Read with Codex skipped because no PDF was downloaded"
+				);
+			}
+		}
 
 		this.states.downloadProgress = 100;
 		return [notePath, pdfPath];
+	}
+
+	private setStatus(message: string): void {
+		this.states.statusMessage = message;
+	}
+
+	private addLog(level: string, message: string): void {
+		this.setStatus(message);
+		this.states.logs.push([level, message]);
+	}
+
+	private throwIfAborted(): void {
+		if (this.abortSignal?.aborted) {
+			throw new Error("Import canceled.");
+		}
 	}
 
 	private async downloadPdfFile(paper: Paper): Promise<string> {
@@ -201,10 +265,10 @@ export class ImportModal extends Modal {
 		// Check if PDF already exists
 		const pdfExists = await this.app.vault.adapter.exists(pdfPath);
 		if (pdfExists) {
-			this.states.logs.push([
+			this.addLog(
 				"warn",
-				`PDF already exists: ${pdfPath}. Skipping download.`,
-			]);
+				`PDF already exists: ${pdfPath}. Skipping download.`
+			);
 			new Notice(
 				`PDF already exists: ${pdfFilename}. Using existing file.`
 			);
@@ -213,8 +277,10 @@ export class ImportModal extends Modal {
 
 		// Download PDF with progress tracking
 		this.states.downloadProgress = 0;
-		this.states.logs.push(["info", "Starting PDF download..."]);
+		this.addLog("info", "Starting PDF download...");
 		const controller = new AbortController();
+		const abortDownload = () => controller.abort();
+		this.abortSignal?.addEventListener("abort", abortDownload);
 		const timeoutId = setTimeout(
 			() => controller.abort(),
 			PDF_DOWNLOAD_TIMEOUT_MS
@@ -251,11 +317,17 @@ export class ImportModal extends Modal {
 
 				if (total > 0) {
 					this.states.downloadProgress = (received / total) * 100;
+					this.setStatus(
+						`Downloading PDF ${Math.round(this.states.downloadProgress)}%`
+					);
 				} else {
 					// If we don't know the total size, show indeterminate progress
 					this.states.downloadProgress = Math.min(
 						50 + (received / 1000000) * 10,
 						90
+					);
+					this.setStatus(
+						`Downloading PDF ${Math.round(received / 1024 / 1024)} MB`
 					);
 				}
 			}
@@ -276,18 +348,21 @@ export class ImportModal extends Modal {
 			this.states.downloadProgress = 0;
 			const message =
 				error instanceof DOMException && error.name === "AbortError"
-					? "PDF download timed out. Please try again later."
+					? this.abortSignal?.aborted
+						? "Import canceled."
+						: "PDF download timed out. Please try again later."
 					: getErrorMessage(error);
-			this.states.logs.push([
+			this.addLog(
 				"error",
-				`PDF download failed: ${message}`,
-			]);
+				`PDF download failed: ${message}`
+			);
 			throw new Error(message);
 		} finally {
 			clearTimeout(timeoutId);
+			this.abortSignal?.removeEventListener("abort", abortDownload);
 		}
 
-		this.states.logs.push(["info", `PDF downloaded: ${pdfPath}`]);
+		this.addLog("info", `PDF downloaded: ${pdfPath}`);
 		return pdfPath;
 	}
 
@@ -312,7 +387,7 @@ export class ImportModal extends Modal {
 		// Check if note already exists
 		const noteExists = await this.app.vault.adapter.exists(notePath);
 		if (noteExists) {
-			this.states.logs.push(["warn", `Note already exists: ${notePath}`]);
+			this.addLog("warn", `Note already exists: ${notePath}`);
 			new Notice(
 				`Note already exists: ${noteFilename}. Opening existing note.`
 			);
@@ -344,7 +419,7 @@ export class ImportModal extends Modal {
 
 		await this.app.vault.adapter.write(notePath, noteContent);
 
-		this.states.logs.push(["info", `Note created: ${notePath}`]);
+		this.addLog("info", `Note created: ${notePath}`);
 		return notePath;
 	}
 
@@ -364,26 +439,23 @@ export class ImportModal extends Modal {
 					const template = await this.app.vault.adapter.read(
 						templatePath
 					);
-					this.states.logs.push([
-						"info",
-						`Using custom template: ${templatePath}`,
-					]);
+					this.addLog("info", `Using custom template: ${templatePath}`);
 					return template;
 				} else {
-					this.states.logs.push([
+					this.addLog(
 						"warn",
-						`Template file not found: ${templatePath}, using default template`,
-					]);
+						`Template file not found: ${templatePath}, using default template`
+					);
 				}
 			} catch (error) {
-				this.states.logs.push([
+				this.addLog(
 					"error",
-					`Failed to read template file: ${getErrorMessage(error)}, using default template`,
-				]);
+					`Failed to read template file: ${getErrorMessage(error)}, using default template`
+				);
 			}
 		}
 
-		this.states.logs.push(["info", "Using default template"]);
+		this.addLog("info", "Using default template");
 		return this.getDefaultTemplate();
 	}
 

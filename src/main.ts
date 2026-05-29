@@ -5,6 +5,7 @@ import {
 } from "./import_queue_view";
 import {
 	DEFAULT_SETTINGS,
+	DEFAULT_HIGHLIGHT_CATEGORIES,
 	type PaperImporterPluginSettings,
 	PaperImporterSettingTab,
 } from "./setting_tab";
@@ -45,20 +46,14 @@ export default class PaperImporterPlugin extends Plugin {
 	onunload() {}
 
 	async activateQueueView(downloadPdf: boolean) {
-		let leaf = this.app.workspace.getLeavesOfType(
-			IMPORT_QUEUE_VIEW_TYPE
-		)[0];
-
-		if (!leaf) {
-			leaf = await this.app.workspace.ensureSideLeaf(
-				IMPORT_QUEUE_VIEW_TYPE,
-				"right",
-				{ active: true, reveal: true }
-			);
-		}
+		const leaf = this.app.workspace.getLeaf("tab");
+		await leaf.setViewState({
+			type: IMPORT_QUEUE_VIEW_TYPE,
+			active: true,
+		});
 
 		await leaf.loadIfDeferred();
-		await this.app.workspace.revealLeaf(leaf);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 
 		if (leaf.view instanceof ImportQueueView) {
 			leaf.view.setDownloadPdf(downloadPdf);
@@ -67,10 +62,44 @@ export default class PaperImporterPlugin extends Plugin {
 	}
 
 	async loadSettings() {
+		const savedSettings = (await this.loadData()) || {};
+		const legacyPrompt =
+			savedSettings.readingPrompt ||
+			savedSettings.claudeReadingPrompt ||
+			savedSettings.codexReadingPrompt;
+		const legacyHighlightCategories =
+			savedSettings.highlightCategories ||
+			[
+				{
+					name: "Key Points",
+					color: savedSettings.highlightColorKeyPoints || "#bb61e5",
+				},
+				{
+					name: "Method",
+					color: savedSettings.highlightColorMethod || "#086ddd",
+				},
+				{
+					name: "Results",
+					color: savedSettings.highlightColorResults || "#ea5252",
+				},
+				{
+					name: "Details",
+					color: savedSettings.highlightColorDetails || "#ffd000",
+				},
+			];
+
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			await this.loadData()
+			savedSettings,
+			{
+				highlightCategories: Array.isArray(legacyHighlightCategories)
+					? legacyHighlightCategories
+					: DEFAULT_HIGHLIGHT_CATEGORIES.map((category) => ({
+							...category,
+						})),
+			},
+			legacyPrompt ? { readingPrompt: legacyPrompt } : {}
 		);
 	}
 
