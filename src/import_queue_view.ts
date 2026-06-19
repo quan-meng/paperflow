@@ -142,7 +142,6 @@ export class ImportQueueView extends ItemView {
 			attr: { accept: "application/pdf,.pdf" },
 		});
 		this.pdfFileInputEl.addClass("paper-importer-queue-file-input");
-		this.pdfFileInputEl.style.display = "none";
 		this.pdfFileInputEl.addEventListener("change", () => {
 			void this.enqueueFromFile();
 		});

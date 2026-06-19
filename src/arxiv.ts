@@ -18,16 +18,19 @@ async function withTimeout<T>(
 	timeoutMs: number,
 	message: string
 ): Promise<T> {
-	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	let timeoutId: number | undefined;
 	const timeout = new Promise<never>((_, reject) => {
-		timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+		timeoutId = window.setTimeout(
+			() => reject(new Error(message)),
+			timeoutMs
+		);
 	});
 
 	try {
 		return await Promise.race([operation, timeout]);
 	} finally {
 		if (timeoutId) {
-			clearTimeout(timeoutId);
+			window.clearTimeout(timeoutId);
 		}
 	}
 }

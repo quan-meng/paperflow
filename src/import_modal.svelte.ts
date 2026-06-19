@@ -18,15 +18,21 @@ const PDF_DOWNLOAD_TIMEOUT_MS = 120000;
  * local PDF file (provided as in-memory bytes from a file picker, or as a path
  * to a PDF inside or outside the vault).
  */
-export type ImportSource =
-	| { kind: "arxiv"; arxivId: string; label: string }
-	| {
-			kind: "pdf";
-			label: string;
-			fileName: string;
-			path?: string;
-			bytes?: ArrayBuffer;
-	  };
+export interface ArxivImportSource {
+	kind: "arxiv";
+	arxivId: string;
+	label: string;
+}
+
+export interface PdfImportSource {
+	kind: "pdf";
+	label: string;
+	fileName: string;
+	path?: string;
+	bytes?: ArrayBuffer;
+}
+
+export type ImportSource = ArxivImportSource | PdfImportSource;
 
 function basename(path: string): string {
 	const parts = path.split(/[/\\]/);
@@ -138,7 +144,7 @@ function sanitizeForFrontmatter(value?: string | null): string {
 
 	// Check if the string contains characters that require special handling in YAML
 	const needsQuoting =
-		/[:\{\}\[\],&*#?|\-<>=!%@`"'\\]/.test(trimmed) ||
+		/[:{}[\],&*#?|\-<>=!%@`"'\\]/.test(trimmed) ||
 		trimmed.startsWith(" ") ||
 		trimmed.endsWith(" ") ||
 		/^\d/.test(trimmed) ||
@@ -257,7 +263,7 @@ export class ImportModal extends Modal {
 						}
 
 						try {
-							const [notePath, _] =
+							const [notePath] =
 								await this.searchAndImportPaper(importSource);
 							await this.app.workspace.openLinkText(
 								notePath,
@@ -418,29 +424,17 @@ export class ImportModal extends Modal {
 			throw new Error("No PDF data or path was provided.");
 		}
 
-		// Prefer a vault-relative path so the import works on mobile too.
+		// Read the PDF from the vault. Use a vault-relative path so the import
+		// works on desktop and mobile; for files outside the vault, use the
+		// "Choose PDF" button, which provides the file contents directly.
 		const vaultPath = normalizePath(source.path);
 		if (await this.app.vault.adapter.exists(vaultPath)) {
 			return this.app.vault.adapter.readBinary(vaultPath);
 		}
 
-		// Fall back to an absolute filesystem path on desktop.
-		if (typeof require !== "undefined") {
-			try {
-				const fs = require("fs") as typeof import("fs");
-				const data = fs.readFileSync(source.path);
-				return data.buffer.slice(
-					data.byteOffset,
-					data.byteOffset + data.byteLength
-				);
-			} catch (error) {
-				throw new Error(
-					`Could not read PDF file: ${getErrorMessage(error)}`
-				);
-			}
-		}
-
-		throw new Error(`PDF file not found: ${source.path}`);
+		throw new Error(
+			`PDF not found in vault: ${source.path}. Use "Choose PDF" to import a file from outside the vault.`
+		);
 	}
 
 	private async savePdfFile(
@@ -501,7 +495,7 @@ export class ImportModal extends Modal {
 		const controller = new AbortController();
 		const abortDownload = () => controller.abort();
 		this.abortSignal?.addEventListener("abort", abortDownload);
-		const timeoutId = setTimeout(
+		const timeoutId = window.setTimeout(
 			() => controller.abort(),
 			PDF_DOWNLOAD_TIMEOUT_MS
 		);
@@ -578,7 +572,7 @@ export class ImportModal extends Modal {
 			);
 			throw new Error(message);
 		} finally {
-			clearTimeout(timeoutId);
+			window.clearTimeout(timeoutId);
 			this.abortSignal?.removeEventListener("abort", abortDownload);
 		}
 

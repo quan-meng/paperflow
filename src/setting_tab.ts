@@ -1,5 +1,6 @@
 import {
 	App,
+	ButtonComponent,
 	Notice,
 	PluginSettingTab,
 	Setting,
@@ -219,27 +220,22 @@ export class PaperImporterSettingTab extends PluginSettingTab {
 		const sectionEl = containerEl.createDiv(
 			"paper-importer-highlight-setting"
 		);
-		const headerEl = sectionEl.createDiv(
-			"paper-importer-highlight-header"
-		);
-		const titleEl = headerEl.createDiv();
-		titleEl.createEl("h3", { text: "PDF++ highlight concepts" });
-		titleEl.createEl("p", {
-			text: "Add the concepts you want Claude or Codex to use under Key Sentences. Colors are stored as hex and converted to PDF++ highlight colors.",
-			cls: "setting-item-description",
-		});
-
-		const addButtonEl = headerEl.createEl("button", {
-			text: "Add concept",
-		});
-		addButtonEl.addEventListener("click", async () => {
-			this.plugin.settings.highlightCategories.push({
-				name: "New Concept",
-				color: "#ffd000",
-			});
-			await this.plugin.saveSettings();
-			this.display();
-		});
+		new Setting(sectionEl)
+			.setName("PDF++ highlight concepts")
+			.setDesc(
+				"Add the concepts you want Claude or Codex to use under Key Sentences. Colors are stored as hex and converted to PDF++ highlight colors."
+			)
+			.setHeading()
+			.addButton((button) =>
+				button.setButtonText("Add concept").onClick(async () => {
+					this.plugin.settings.highlightCategories.push({
+						name: "New Concept",
+						color: "#ffd000",
+					});
+					await this.plugin.saveSettings();
+					this.display();
+				})
+			);
 
 		const listEl = sectionEl.createDiv("paper-importer-highlight-list");
 		for (const [index, category] of this.plugin.settings.highlightCategories.entries()) {
@@ -340,17 +336,14 @@ export class PaperImporterSettingTab extends PluginSettingTab {
 		const sectionEl = containerEl.createDiv(
 			"paper-importer-prompt-setting"
 		);
-		const headerEl = sectionEl.createDiv("paper-importer-prompt-header");
-		const titleEl = headerEl.createDiv();
-		titleEl.createEl("h3", { text: "Reading prompt" });
-		titleEl.createEl("p", {
-			text: "Shared prompt template for Claude and Codex PDF reading.",
-			cls: "setting-item-description",
-		});
-
-		const resetButtonEl = headerEl.createEl("button", {
-			text: "Reset to default",
-		});
+		let resetButton!: ButtonComponent;
+		new Setting(sectionEl)
+			.setName("Reading prompt")
+			.setDesc("Shared prompt template for Claude and Codex PDF reading.")
+			.setHeading()
+			.addButton((button) => {
+				resetButton = button.setButtonText("Reset to default");
+			});
 
 		const toolbarEl = sectionEl.createDiv("paper-importer-prompt-toolbar");
 		toolbarEl.createSpan({
@@ -373,7 +366,7 @@ export class PaperImporterSettingTab extends PluginSettingTab {
 			void savePrompt();
 		});
 
-		resetButtonEl.addEventListener("click", async () => {
+		resetButton.onClick(async () => {
 			textareaEl.value = DEFAULT_READING_PROMPT;
 			await savePrompt();
 			new Notice("Reading prompt reset to default.");

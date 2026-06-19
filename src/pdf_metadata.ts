@@ -111,13 +111,6 @@ function itemY(item: PdfTextItem): number {
 	return 0;
 }
 
-function looksLikeArxivId(value: string): boolean {
-	return (
-		/^\d{4}\.\d{4,5}(?:v\d+)?$/.test(value) ||
-		/^[a-z-]+(?:\.[A-Z]{2})?\/\d{7}(?:v\d+)?$/i.test(value)
-	);
-}
-
 /**
  * Find an arXiv identifier inside the raw PDF text. arXiv stamps a vertical
  * "arXiv:XXXX.XXXXX" watermark on the first page of every submission, so this is
