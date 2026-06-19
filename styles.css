@@ -21,6 +21,11 @@ If your plugin does not need CSS, delete this file.
 	min-width: 0;
 }
 
+.paper-importer-queue-form input.paper-importer-queue-file-input {
+	display: none;
+	flex: 0;
+}
+
 .paper-importer-queue-options {
 	display: flex;
 	flex-direction: column;

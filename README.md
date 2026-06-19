@@ -1,13 +1,15 @@
 # PaperFlow
 
-PaperFlow turns arXiv links into Obsidian paper notes, PDFs, AI summaries, and
-PDF++ highlights.
+PaperFlow turns arXiv links and local PDFs into Obsidian paper notes, PDFs, AI
+summaries, and PDF++ highlights.
 
 ![PaperFlow import page](assets/paperflow-teaser.svg)
 
 ## What It Does
 
 - Import from arXiv IDs or arXiv URLs.
+- Import from a local PDF file, extracting the title, authors, date, and
+  abstract the same way an arXiv import does.
 - Download PDFs and create Markdown notes in `Raw` by default.
 - Read papers with Claude Code or Codex.
 - Generate concise sections for idea, method, limitations, future work, and key sentences.
@@ -61,6 +63,21 @@ https://arxiv.org/pdf/1703.06870
 
 PaperFlow shows progress, supports canceling, and opens the generated note when
 the import finishes.
+
+### Import From A PDF
+
+Click `Choose PDF` to pick a local PDF file, or type/paste a path to a PDF
+(for example `Raw/My Paper.pdf`) into the input field and press Enter.
+
+PaperFlow then extracts the same fields it gets from arXiv:
+
+- If the PDF carries an arXiv stamp (most arXiv downloads do), the canonical
+  arXiv metadata is fetched so the note matches an arXiv import exactly.
+- Otherwise, the title, authors, abstract, and date are recovered from the PDF
+  text layer and document properties.
+
+With `Download PDF` enabled, the chosen PDF is copied into the PDF folder so AI
+reading and PDF++ highlights work just like an arXiv import.
 
 ## Settings
 

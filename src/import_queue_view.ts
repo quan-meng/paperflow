@@ -1,6 +1,7 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 
-import { ImportModal } from "./import_modal.svelte";
+import { ImportModal, parseImportSource } from "./import_modal.svelte";
+import type { ImportSource } from "./import_modal.svelte";
 import type PaperImporterPlugin from "./main";
 
 export const IMPORT_QUEUE_VIEW_TYPE = "paper-importer-queue";
@@ -15,7 +16,7 @@ type ImportTaskStatus =
 interface ImportTask {
 	id: number;
 	input: string;
-	arxivId: string;
+	source: ImportSource;
 	downloadPdf: boolean;
 	readWithClaude: boolean;
 	readWithCodex: boolean;
@@ -60,6 +61,8 @@ export class ImportQueueView extends ItemView {
 	private tasks: ImportTask[] = [];
 	private inputEl?: HTMLInputElement;
 	private importButtonEl?: HTMLButtonElement;
+	private pdfButtonEl?: HTMLButtonElement;
+	private pdfFileInputEl?: HTMLInputElement;
 	private downloadPdfEl?: HTMLInputElement;
 	private readWithClaudeEl?: HTMLInputElement;
 	private readWithCodexEl?: HTMLInputElement;
@@ -115,7 +118,7 @@ export class ImportQueueView extends ItemView {
 		const formEl = contentEl.createDiv("paper-importer-queue-form");
 		this.inputEl = formEl.createEl("input", {
 			type: "text",
-			placeholder: "arXiv ID or URL",
+			placeholder: "arXiv ID, URL, or PDF path",
 		});
 		this.inputEl.addEventListener("keydown", (event) => {
 			if (event.key === "Enter") {
@@ -127,6 +130,21 @@ export class ImportQueueView extends ItemView {
 		this.importButtonEl = formEl.createEl("button", { text: "Import" });
 		this.importButtonEl.addEventListener("click", () => {
 			this.enqueueFromInput();
+		});
+
+		this.pdfButtonEl = formEl.createEl("button", { text: "Choose PDF" });
+		this.pdfButtonEl.addEventListener("click", () => {
+			this.pdfFileInputEl?.click();
+		});
+
+		this.pdfFileInputEl = formEl.createEl("input", {
+			type: "file",
+			attr: { accept: "application/pdf,.pdf" },
+		});
+		this.pdfFileInputEl.addClass("paper-importer-queue-file-input");
+		this.pdfFileInputEl.style.display = "none";
+		this.pdfFileInputEl.addEventListener("change", () => {
+			void this.enqueueFromFile();
 		});
 
 		const optionsEl = contentEl.createDiv("paper-importer-queue-options");
@@ -190,30 +208,46 @@ export class ImportQueueView extends ItemView {
 
 	private enqueueFromInput(): void {
 		const input = this.inputEl?.value.trim() || "";
-		const downloadPdf = this.downloadPdfEl?.checked ?? true;
-		const readWithClaude = this.readWithClaudeEl?.checked ?? false;
-		const readWithCodex = this.readWithCodexEl?.checked ?? false;
-		const includePdfHighlights =
-			this.includePdfHighlightsEl?.checked ?? false;
 
 		if (!input) {
-			new Notice("Enter an arXiv ID or URL to import.");
+			new Notice("Enter an arXiv ID, URL, or PDF path to import.");
 			return;
 		}
 
-		this.startImport(
-			input,
-			downloadPdf,
-			readWithClaude,
-			readWithCodex,
-			includePdfHighlights
-		);
-
-		if (this.inputEl) {
-			this.inputEl.disabled = true;
+		let source: ImportSource;
+		try {
+			source = parseImportSource(input);
+		} catch (error) {
+			new Notice(getErrorMessage(error));
+			return;
 		}
-		if (this.importButtonEl) {
-			this.importButtonEl.disabled = true;
+
+		this.startImport(input, source);
+	}
+
+	private async enqueueFromFile(): Promise<void> {
+		const fileInput = this.pdfFileInputEl;
+		const file = fileInput?.files?.[0];
+		if (!file) {
+			return;
+		}
+
+		try {
+			const bytes = await file.arrayBuffer();
+			const source: ImportSource = {
+				kind: "pdf",
+				label: file.name,
+				fileName: file.name,
+				bytes,
+			};
+			this.startImport(file.name, source);
+		} catch (error) {
+			new Notice(getErrorMessage(error));
+		} finally {
+			// Reset so selecting the same file again re-triggers the change event.
+			if (fileInput) {
+				fileInput.value = "";
+			}
 		}
 	}
 
@@ -239,35 +273,17 @@ export class ImportQueueView extends ItemView {
 		}
 	}
 
-	private startImport(
-		input: string,
-		downloadPdf: boolean,
-		readWithClaude: boolean,
-		readWithCodex: boolean,
-		includePdfHighlights: boolean
-	): void {
-		let arxivId: string;
-		try {
-			const parser = new ImportModal(
-				this.app,
-				{
-					...this.plugin.settings,
-					readWithClaude,
-					readWithCodex,
-					includePdfHighlights,
-				},
-				downloadPdf
-			);
-			arxivId = parser.extractArxivId(input);
-		} catch (error) {
-			new Notice(getErrorMessage(error));
-			return;
-		}
+	private startImport(input: string, source: ImportSource): void {
+		const downloadPdf = this.downloadPdfEl?.checked ?? true;
+		const readWithClaude = this.readWithClaudeEl?.checked ?? false;
+		const readWithCodex = this.readWithCodexEl?.checked ?? false;
+		const includePdfHighlights =
+			this.includePdfHighlightsEl?.checked ?? false;
 
 		const task: ImportTask = {
 			id: this.nextTaskId++,
 			input,
-			arxivId,
+			source,
 			downloadPdf,
 			readWithClaude,
 			readWithCodex,
@@ -282,6 +298,16 @@ export class ImportQueueView extends ItemView {
 		this.tasks = [task];
 		this.renderTasks();
 		void this.runTask(task);
+
+		if (this.inputEl) {
+			this.inputEl.disabled = true;
+		}
+		if (this.importButtonEl) {
+			this.importButtonEl.disabled = true;
+		}
+		if (this.pdfButtonEl) {
+			this.pdfButtonEl.disabled = true;
+		}
 	}
 
 	private async runTask(task: ImportTask): Promise<void> {
@@ -320,7 +346,7 @@ export class ImportQueueView extends ItemView {
 			runner.abortSignal = task.abortController.signal;
 
 			const [notePath, pdfPath] = await runner.searchAndImportPaper(
-				task.arxivId
+				task.source
 			);
 
 			task.notePath = notePath;
@@ -328,14 +354,14 @@ export class ImportQueueView extends ItemView {
 			task.status = "success";
 			task.finishedAt = Date.now();
 			task.states.logs.push(["success", "Import completed"]);
-			new Notice(`Imported ${task.arxivId}`);
+			new Notice(`Imported ${task.source.label}`);
 			await this.openNoteInThisTab(notePath);
 		} catch (error) {
 			task.finishedAt = Date.now();
 			if (task.abortController.signal.aborted) {
 				task.status = "canceled";
 				task.states.logs.push(["warn", "Import canceled"]);
-				new Notice(`Canceled ${task.arxivId}`);
+				new Notice(`Canceled ${task.source.label}`);
 			} else {
 				task.status = "error";
 				task.error = getErrorMessage(error);
@@ -358,6 +384,9 @@ export class ImportQueueView extends ItemView {
 		}
 		if (this.importButtonEl) {
 			this.importButtonEl.disabled = !enabled;
+		}
+		if (this.pdfButtonEl) {
+			this.pdfButtonEl.disabled = !enabled;
 		}
 		if (this.downloadPdfEl) {
 			this.downloadPdfEl.disabled = !enabled;
@@ -407,7 +436,7 @@ export class ImportQueueView extends ItemView {
 		const rootEl = createDiv("paper-importer-task");
 		const headerEl = rootEl.createDiv("paper-importer-task-header");
 		const titleEl = headerEl.createSpan({
-			text: task.arxivId,
+			text: task.source.label,
 			cls: "paper-importer-task-title",
 		});
 		const statusEl = headerEl.createSpan({
@@ -460,7 +489,7 @@ export class ImportQueueView extends ItemView {
 		elements: TaskCardElements
 	): void {
 		elements.rootEl.className = `paper-importer-task paper-importer-task-${task.status}`;
-		elements.titleEl.setText(task.arxivId);
+		elements.titleEl.setText(task.source.label);
 		elements.statusEl.setText(task.status);
 		elements.cancelButtonEl?.toggle(
 			task.status === "queued" || task.status === "running"

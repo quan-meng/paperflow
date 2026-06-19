@@ -6,11 +6,115 @@ import ImportDialog from "./component/ImportDialog.svelte";
 import { readWithClaude } from "./claude_reader";
 import { readWithCodex } from "./codex_reader";
 import { searchPaper } from "./arxiv";
+import { extractPaperFromPdf } from "./pdf_metadata";
 import { DEFAULT_TEMPLATE } from "./default_template";
 import type { PaperImporterPluginSettings } from "./setting_tab";
 import type { Paper } from "./arxiv";
 
 const PDF_DOWNLOAD_TIMEOUT_MS = 120000;
+
+/**
+ * A normalized import request. PaperFlow accepts either an arXiv identifier or a
+ * local PDF file (provided as in-memory bytes from a file picker, or as a path
+ * to a PDF inside or outside the vault).
+ */
+export type ImportSource =
+	| { kind: "arxiv"; arxivId: string; label: string }
+	| {
+			kind: "pdf";
+			label: string;
+			fileName: string;
+			path?: string;
+			bytes?: ArrayBuffer;
+	  };
+
+function basename(path: string): string {
+	const parts = path.split(/[/\\]/);
+	return parts[parts.length - 1] || path;
+}
+
+/**
+ * Parse a raw text input into an {@link ImportSource}. arXiv IDs and URLs are
+ * recognized first; anything ending in `.pdf` is treated as a path to a local
+ * PDF file.
+ */
+export function parseImportSource(text: string): ImportSource {
+	const trimmed = text.trim();
+
+	try {
+		const arxivId = parseArxivId(trimmed);
+		return { kind: "arxiv", arxivId, label: arxivId };
+	} catch {
+		// Not an arXiv input; fall through to PDF handling.
+	}
+
+	const withoutScheme = trimmed.replace(/^file:\/\//i, "");
+	if (/\.pdf$/i.test(withoutScheme)) {
+		const fileName = basename(withoutScheme);
+		return {
+			kind: "pdf",
+			label: fileName,
+			fileName,
+			path: withoutScheme,
+		};
+	}
+
+	throw new Error("Enter an arXiv ID, an arXiv URL, or a path to a PDF file.");
+}
+
+/**
+ * Extract a bare arXiv ID from an ID or URL. Throws when the text is not a
+ * recognizable arXiv reference.
+ */
+export function parseArxivId(text: string): string {
+	const trimmed = text.trim();
+
+	// Match against arXiv:xxxx.xxxx or arxiv:xxxx.xxxxx
+	const arxivIdPattern = /^ar[Xx]iv:(\d{4}\.\d{4,5}(?:v\d+)?)$/;
+	const match = trimmed.match(arxivIdPattern);
+	if (match) {
+		return match[match.length - 1];
+	}
+
+	// Match against arXiv:xxxxx/xxxxxxx or arxiv:xxxxx/xxxxxxx
+	const arxivIdPattern2 = /^ar[Xx]iv:(.+\/\d+(?:v\d+)?)$/;
+	const match2 = trimmed.match(arxivIdPattern2);
+	if (match2) {
+		return match2[match2.length - 1];
+	}
+
+	// Match against arxiv.org/abs|pdf|html/xxxx.xxxx(x), with an optional .pdf
+	const urlPattern =
+		/^(https?:\/\/)?(www\.)?arxiv\.org\/(abs|pdf|html)\/(\d{4}\.\d{4,5}(?:v\d+)?)(?:\.pdf)?$/i;
+	const urlMatch = trimmed.match(urlPattern);
+	if (urlMatch) {
+		return urlMatch[urlMatch.length - 1];
+	}
+
+	// Match against arxiv.org/abs|pdf|html/xxxxx/xxxxxxx, with an optional .pdf
+	const urlPattern2 =
+		/^(https?:\/\/)?(www\.)?arxiv\.org\/(abs|pdf|html)\/(.+\/\d+(?:v\d+)?)(?:\.pdf)?$/i;
+	const urlMatch2 = trimmed.match(urlPattern2);
+	if (urlMatch2) {
+		return urlMatch2[urlMatch2.length - 1];
+	}
+
+	// Match against xxxx.xxxx or xxxx.xxxxx
+	const idPattern = /^(\d{4}\.\d{4,5}(?:v\d+)?)$/;
+	const idMatch = trimmed.match(idPattern);
+	if (idMatch) {
+		return idMatch[idMatch.length - 1];
+	}
+
+	// Match against xxxxx/xxxxxxx
+	const idPattern2 = /^(\d+\/\d+(?:v\d+)?)$/;
+	const idMatch2 = trimmed.match(idPattern2);
+	if (idMatch2) {
+		return idMatch2[idMatch2.length - 1];
+	}
+
+	throw new Error("Invalid arXiv ID or URL");
+}
 
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
@@ -72,8 +176,27 @@ function sanitizeFilename(filename: string): string {
 		.trim();
 }
 
+/**
+ * Build the base file name for a paper's PDF and note. The arXiv ID is appended
+ * in parentheses when present; PDF imports without an arXiv ID use the title
+ * alone.
+ */
+function paperBaseName(paper: Paper): string {
+	const id = paper.paperId?.trim();
+	const base = id ? `${paper.title} (${id})` : paper.title;
+	return sanitizeFilename(base);
+}
+
 function formatDateForObsidian(dateString: string): string {
+	if (!dateString || !dateString.trim()) {
+		return "";
+	}
+
 	const date = new Date(dateString);
+	if (Number.isNaN(date.getTime())) {
+		return "";
+	}
+
 	const year = date.getUTCFullYear();
 	const month = String(date.getUTCMonth() + 1).padStart(2, "0");
 	const day = String(date.getUTCDate()).padStart(2, "0");
@@ -124,9 +247,9 @@ export class ImportModal extends Modal {
 								: "Importing metadata...",
 						]);
 
-						let arxivId: string;
+						let importSource: ImportSource;
 						try {
-							arxivId = this.extractArxivId(paperUri);
+							importSource = parseImportSource(paperUri);
 						} catch (error) {
 							this.states.downloadProgress = 0;
 							new Notice(getErrorMessage(error));
@@ -135,7 +258,7 @@ export class ImportModal extends Modal {
 
 						try {
 							const [notePath, _] =
-								await this.searchAndImportPaper(arxivId);
+								await this.searchAndImportPaper(importSource);
 							await this.app.workspace.openLinkText(
 								notePath,
 								"",
@@ -172,17 +295,50 @@ export class ImportModal extends Modal {
 		}
 	}
 
-	async searchAndImportPaper(arxivId: string): Promise<[string, string]> {
+	async searchAndImportPaper(
+		source: ImportSource | string
+	): Promise<[string, string]> {
+		const importSource: ImportSource =
+			typeof source === "string"
+				? { kind: "arxiv", arxivId: source, label: source }
+				: source;
+
 		this.throwIfAborted();
-		this.addLog("info", "Fetching metadata from arXiv...");
-		const paper = await searchPaper(arxivId);
+
+		let paper: Paper;
+		let pdfBytes: ArrayBuffer | undefined;
+
+		if (importSource.kind === "arxiv") {
+			this.addLog("info", "Fetching metadata from arXiv...");
+			paper = await searchPaper(importSource.arxivId);
+		} else {
+			this.addLog("info", "Reading metadata from PDF...");
+			pdfBytes = await this.loadPdfBytes(importSource);
+			paper = await extractPaperFromPdf({
+				bytes: new Uint8Array(pdfBytes),
+				fileName: importSource.fileName,
+				abortSignal: this.abortSignal,
+				log: (message) => this.addLog("info", message),
+			});
+		}
+
 		this.throwIfAborted();
 		this.addLog("info", `Found paper: ${paper.title}`);
 
 		let pdfPath = "";
 
-		if (this.downloadPdf) {
-			pdfPath = await this.downloadPdfFile(paper);
+		if (importSource.kind === "arxiv") {
+			if (this.downloadPdf) {
+				pdfPath = await this.downloadPdfFile(paper);
+			}
+		} else if (this.downloadPdf && pdfBytes) {
+			pdfPath = await this.savePdfFile(paper, pdfBytes);
+		} else if (importSource.path) {
+			// Metadata-only import: reference the source PDF if it is in the vault.
+			const vaultPath = normalizePath(importSource.path);
+			if (await this.app.vault.adapter.exists(vaultPath)) {
+				pdfPath = vaultPath;
+			}
 		}
 
 		this.throwIfAborted();
@@ -249,6 +405,72 @@ export class ImportModal extends Modal {
 		}
 	}
 
+	private async loadPdfBytes(source: ImportSource): Promise<ArrayBuffer> {
+		if (source.kind !== "pdf") {
+			throw new Error("Cannot load PDF bytes from a non-PDF source.");
+		}
+
+		if (source.bytes) {
+			return source.bytes;
+		}
+
+		if (!source.path) {
+			throw new Error("No PDF data or path was provided.");
+		}
+
+		// Prefer a vault-relative path so the import works on mobile too.
+		const vaultPath = normalizePath(source.path);
+		if (await this.app.vault.adapter.exists(vaultPath)) {
+			return this.app.vault.adapter.readBinary(vaultPath);
+		}
+
+		// Fall back to an absolute filesystem path on desktop.
+		if (typeof require !== "undefined") {
+			try {
+				const fs = require("fs") as typeof import("fs");
+				const data = fs.readFileSync(source.path);
+				return data.buffer.slice(
+					data.byteOffset,
+					data.byteOffset + data.byteLength
+				);
+			} catch (error) {
+				throw new Error(
+					`Could not read PDF file: ${getErrorMessage(error)}`
+				);
+			}
+		}
+
+		throw new Error(`PDF file not found: ${source.path}`);
+	}
+
+	private async savePdfFile(
+		paper: Paper,
+		bytes: ArrayBuffer
+	): Promise<string> {
+		const pdfFolder = normalizePath(this.settings.pdfFolder);
+
+		let pdfFolderPath = this.app.vault.getFolderByPath(pdfFolder)!;
+		if (!pdfFolderPath) {
+			pdfFolderPath = await this.app.vault.createFolder(pdfFolder);
+		}
+
+		const pdfFilename = `${paperBaseName(paper)}.pdf`;
+		const pdfPath = normalizePath(`${pdfFolderPath.path}/${pdfFilename}`);
+
+		const pdfExists = await this.app.vault.adapter.exists(pdfPath);
+		if (pdfExists) {
+			this.addLog(
+				"warn",
+				`PDF already exists: ${pdfPath}. Using existing file.`
+			);
+			return pdfPath;
+		}
+
+		await this.app.vault.adapter.writeBinary(pdfPath, bytes);
+		this.addLog("info", `PDF saved: ${pdfPath}`);
+		return pdfPath;
+	}
+
 	private async downloadPdfFile(paper: Paper): Promise<string> {
 		const pdfFolder = normalizePath(this.settings.pdfFolder);
 
@@ -257,9 +479,7 @@ export class ImportModal extends Modal {
 			pdfFolderPath = await this.app.vault.createFolder(pdfFolder);
 		}
 
-		const pdfFilename = sanitizeFilename(
-			`${paper.title} (${paper.paperId}).pdf`
-		);
+		const pdfFilename = `${paperBaseName(paper)}.pdf`;
 		const pdfPath = normalizePath(`${pdfFolderPath.path}/${pdfFilename}`);
 
 		// Check if PDF already exists
@@ -377,9 +597,7 @@ export class ImportModal extends Modal {
 			noteFolderPath = await this.app.vault.createFolder(noteFolder);
 		}
 
-		const noteFilename = sanitizeFilename(
-			`${paper.title} (${paper.paperId}).md`
-		);
+		const noteFilename = `${paperBaseName(paper)}.md`;
 		const notePath = normalizePath(
 			`${noteFolderPath.path}/${noteFilename}`
 		);
@@ -460,58 +678,11 @@ export class ImportModal extends Modal {
 	}
 
 	extractArxivId(text: string): string {
-		// Match against arXiv:xxxx.xxxx or arxiv:xxxx.xxxxx
-		const arxivIdPattern = /^ar[Xx]iv:(\d{4}\.\d{4,5}(?:v\d+)?)$/;
-		const match = text.match(arxivIdPattern);
-		if (match) {
-			return match[match.length - 1];
-		}
+		return parseArxivId(text);
+	}
 
-		// Match against arXiv:xxxxx/xxxxxxx or arxiv:xxxxx/xxxxxxx
-		const arxivIdPattern2 = /^ar[Xx]iv:(.+\/\d+(?:v\d+)?)$/;
-		const match2 = text.match(arxivIdPattern2);
-		if (match2) {
-			return match2[match2.length - 1];
-		}
-
-		// Match against arxiv.org/abs/xxxx.xxxx or
-		// arxiv.org/abs/xxxx.xxxxx or
-		// arxiv.org/pdf/xxxx.xxxx or
-		// arxiv.org/pdf/xxxx.xxxxx or
-		// arxiv.org/html/xxxx.xxxx or
-		// arxiv.org/html/xxxx.xxxxx
-		const urlPattern =
-			/^(https?:\/\/)?(www\.)?arxiv\.org\/(abs|pdf|html)\/(\d{4}\.\d{4,5}(?:v\d+)?)$/;
-		const urlMatch = text.match(urlPattern);
-		if (urlMatch) {
-			return urlMatch[urlMatch.length - 1];
-		}
-
-		// Match against arxiv.org/abs/xxxxx/xxxxxxx or
-		// arxiv.org/pdf/xxxxx/xxxxxxx or
-		// arxiv.org/html/xxxxx/xxxxxx or
-		const urlPattern2 =
-			/^(https?:\/\/)?(www\.)?arxiv\.org\/(abs|pdf|html)\/(.+\/\d+(?:v\d+)?)$/;
-		const urlMatch2 = text.match(urlPattern2);
-		if (urlMatch2) {
-			return urlMatch2[urlMatch2.length - 1];
-		}
-
-		// Match against xxxx.xxxx or xxxx.xxxxx
-		const idPattern = /^(\d{4}\.\d{4,5}(?:v\d+)?)$/;
-		const idMatch = text.match(idPattern);
-		if (idMatch) {
-			return idMatch[idMatch.length - 1];
-		}
-
-		// Match against xxxxx/xxxxxxx
-		const idPattern2 = /^(\d+\/\d+(?:v\d+)?)$/;
-		const idMatch2 = text.match(idPattern2);
-		if (idMatch2) {
-			return idMatch2[idMatch2.length - 1];
-		}
-
-		throw new Error("Invalid arXiv ID or URL");
+	parseImportSource(text: string): ImportSource {
+		return parseImportSource(text);
 	}
 
 	getDefaultTemplate(): string {
