@@ -255,33 +255,62 @@ function extractAuthorsFromText(titleText: string, pageText: string): string[] {
 		return [];
 	}
 
-	// Drop affiliation noise (emails, urls, digits) and split on common author
-	// separators.
-	const cleaned = region
+	// Drop emails, urls, and quoted nicknames (e.g. Letian "Max" Fu) that would
+	// otherwise break name-token parsing.
+	region = region
 		.replace(/\S+@\S+/g, " ")
 		.replace(/https?:\/\/\S+/g, " ")
+		.replace(/[“”‘’"']/g, '"')
+		.replace(/"[^"]*"/g, " ");
+
+	// Author names come first; a block of numbered affiliations and footnote
+	// definitions follows. Cut the region at the start of that block so its
+	// institution names do not leak into the author list. The block begins at a
+	// superscript index directly followed by an institution, or at a footnote
+	// definition such as "Equal contribution".
+	const tailPatterns = [
+		/\b\d\s+(?:[A-Z]{2,}\b|(?:[A-Z][a-z.]+\s+){0,2}(?:University|Institute|Lab(?:oratory)?|College|Research|Center|Centre|Department|School|Corporation|Inc\.?))/,
+		/[*†‡§]\s*(?:Equal|Corresponding|Work\s+done|These\s+authors)/i,
+		/\bEqual\s+(?:contribution|advising)\b/i,
+	];
+	let tailIndex = region.length;
+	for (const pattern of tailPatterns) {
+		const matchIndex = region.search(pattern);
+		if (matchIndex >= 0 && matchIndex < tailIndex) {
+			tailIndex = matchIndex;
+		}
+	}
+	region = region.slice(0, tailIndex);
+
+	// Superscript affiliation markers (digits and footnote symbols) appear as
+	// their own tokens; drop them so names like "Wenli Xiao 1 , 2" survive.
+	const cleaned = region
 		.replace(/[•·∗*†‡§¶]/g, ",")
+		.replace(/\b\d+\b/g, " ")
 		.replace(/\s+and\s+/gi, ",");
 
-	const candidates = cleaned
-		.split(/[,;\n]/)
-		.map((part) => collapseWhitespace(part))
-		.filter((part) => {
-			if (part.length < 3 || part.length > 60) {
-				return false;
-			}
-			if (/\d/.test(part)) {
-				return false;
-			}
-			// Expect at least two capitalized name tokens.
-			const tokens = part.split(/\s+/).filter(Boolean);
-			if (tokens.length < 2 || tokens.length > 5) {
-				return false;
-			}
-			return tokens.every((token) => /^[\p{Lu}]/u.test(token));
-		});
+	const authors: string[] = [];
+	for (const part of cleaned.split(/[,;\n]/).map((p) => collapseWhitespace(p))) {
+		if (part.length < 3 || part.length > 40 || /\d/.test(part)) {
+			continue;
+		}
+		const tokens = part.split(/\s+/).filter(Boolean);
+		// Expect capitalized name tokens with at least one lowercase letter.
+		if (
+			!tokens.every((token) => /^[\p{Lu}]/u.test(token)) ||
+			!/[a-z]/.test(part)
+		) {
+			continue;
+		}
+		if (tokens.length === 4 && !part.includes(".")) {
+			// Two adjacent authors separated only by a (lost) line break.
+			authors.push(tokens.slice(0, 2).join(" "), tokens.slice(2).join(" "));
+		} else if (tokens.length >= 2 && tokens.length <= 3) {
+			authors.push(part);
+		}
+	}
 
-	return Array.from(new Set(candidates)).slice(0, 30);
+	return Array.from(new Set(authors)).slice(0, 30);
 }
 
 function getInfoString(
